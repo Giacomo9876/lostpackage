@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}{% if history %}Storico{% else %}Magazzino{% endif %}{% endblock %}
+
+{% block content %}
+{% if history %}<h1>Storico vendite</h1>{% endif %}
+
+<form class="finder stack" method="get" action="{% if history %}{% url 'inventory:history' %}{% else %}{% url 'inventory:list' %}{% endif %}" role="search">
+  <div class="field{% if form.peso.errors %} has-error{% endif %}">
+    <label for="{{ form.peso.id_for_label }}">Cerca per peso</label>
+    <div class="readout-input">{{ form.peso }}<span>kg</span></div>
+    {% for error in form.peso.errors %}<p class="error">{{ error }}</p>{% endfor %}
+  </div>
+  <div class="split">
+    {% include "inventory/_field.html" with field=form.tolleranza %}
+    {% include "inventory/_field.html" with field=form.batch %}
+  </div>
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">Cerca</button>
+    {% if filtered %}<a class="btn btn-quiet" href="{% if history %}{% url 'inventory:history' %}{% else %}{% url 'inventory:list' %}{% endif %}">Azzera</a>{% endif %}
+  </div>
+</form>
+
+<p class="summary" aria-live="polite">
+  {% if searching %}
+    {{ total_count }} pacc{{ total_count|pluralize:"o,hi" }}{% if history %} vendut{{ total_count|pluralize:"o,i" }}{% endif %} tra {{ low|floatformat:3 }} e {{ high|floatformat:3 }} kg
+  {% elif filtered and form.errors %}
+    Controlla i campi di ricerca.
+  {% elif history %}
+    {{ total_count }} pacc{{ total_count|pluralize:"o,hi" }} vendut{{ total_count|pluralize:"o,i" }},
+    {{ total_weight|floatformat:3 }} kg, incasso {{ revenue|floatformat:2 }} €
+  {% else %}
+    {{ total_count }} pacc{{ total_count|pluralize:"o,hi" }}{% if filtered %} nel lotto scelto{% else %} in magazzino{% endif %},
+    {{ total_weight|floatformat:3 }} kg, valore {{ stock_value|floatformat:2 }} €
+  {% endif %}
+</p>
+
+{% if not history %}
+  <p class="pricebar">
+    <span>Prezzo attuale: <strong>{{ price_per_kg|floatformat:2 }} € al kg</strong></span>
+    <a href="{% url 'inventory:price' %}">Cambia prezzo</a>
+  </p>
+{% endif %}
+
+{% if packages %}
+  <ul class="parcels">
+    {% for package in packages %}
+      <li>
+        <a class="parcel{% if searching and package.delta_g == 0 %} is-exact{% endif %}" href="{% url 'inventory:detail' package.pk %}">
+          <img src="{% url 'inventory:image' package.pk 'miniatura' %}?v={{ package.updated_at|date:'U' }}"
+               alt="Foto del pacco #{{ package.pk }}" width="96" height="96" loading="lazy">
+          <span class="parcel-body">
+            <span class="weight">{{ package.weight_kg|floatformat:3 }}<small>kg</small></span>
+            <span class="parcel-meta">
+              <span class="tag">#{{ package.pk }}</span>
+              {% if history %}
+                <span class="price">{{ package.sold_price|floatformat:2 }} €</span>
+              {% else %}
+                <span class="price">{{ package.price|floatformat:2 }} €</span>
+              {% endif %}
+              {% if searching %}
+                {% if package.delta_g == 0 %}
+                  <span class="tag tag-exact">Stesso peso</span>
+                {% else %}
+                  <span class="delta">{{ package.delta_g|stringformat:"+d" }} g</span>
+                {% endif %}
+              {% endif %}
+            </span>
+            {% if package.batch %}<span class="batch-name">{{ package.batch.name }}</span>{% endif %}
+            {% if history %}
+              <span class="note">Venduto il {{ package.sold_at|date:"j F Y"|lower }}</span>
+            {% elif package.notes %}
+              <span class="note">{{ package.notes }}</span>
+            {% endif %}
+          </span>
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+
+  {% if is_paginated %}
+    <nav class="pager" aria-label="Pagine">
+      {% if page_obj.has_previous %}
+        <a class="btn btn-secondary" href="{% querystring page=page_obj.previous_page_number %}">Precedenti</a>
+      {% else %}<span></span>{% endif %}
+      <span>Pagina {{ page_obj.number }} di {{ paginator.num_pages }}</span>
+      {% if page_obj.has_next %}
+        <a class="btn btn-secondary" href="{% querystring page=page_obj.next_page_number %}">Successivi</a>
+      {% else %}<span></span>{% endif %}
+    </nav>
+  {% endif %}
+{% else %}
+  <div class="empty">
+    {% if filtered %}
+      <p><strong>Nessun pacco trovato.</strong> Allarga la tolleranza o ricontrolla il peso.</p>
+    {% elif history %}
+      <p><strong>Ancora nessuna vendita.</strong> I pacchi venduti compaiono qui, con il prezzo a cui li hai venduti.</p>
+    {% else %}
+      <p><strong>Il magazzino è vuoto.</strong> Crea un lotto, poi pesa i pacchi e registrali uno a uno con la foto.</p>
+      <a class="btn btn-primary" href="{% url 'inventory:batch_create' %}">Crea un lotto</a>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}

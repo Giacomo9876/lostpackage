@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{% if object %}Modifica lotto{% else %}Nuovo lotto{% endif %}{% endblock %}
+
+{% block content %}
+<h1>{% if object %}Modifica «{{ object.name }}»{% else %}Nuovo lotto{% endif %}</h1>
+
+<form method="post" class="stack">
+  {% csrf_token %}
+  {% for error in form.non_field_errors %}<p class="error" role="alert">{{ error }}</p>{% endfor %}
+  {% include "inventory/_field.html" with field=form.name %}
+  {% include "inventory/_field.html" with field=form.expected_count %}
+  <div class="actions">
+    {% if object %}
+      <button class="btn btn-primary" type="submit">Salva</button>
+      {% if from_register %}
+        <a class="btn btn-quiet" href="{% url 'inventory:create' %}?lotto={{ object.pk }}">Annulla</a>
+      {% else %}
+        <a class="btn btn-quiet" href="{% url 'inventory:batch_list' %}">Annulla</a>
+      {% endif %}
+    {% else %}
+      <button class="btn btn-primary" type="submit">Crea e registra i pacchi</button>
+      <a class="btn btn-quiet" href="{% url 'inventory:batch_list' %}">Annulla</a>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

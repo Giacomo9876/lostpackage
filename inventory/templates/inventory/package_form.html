@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{% if object %}Modifica pacco #{{ object.pk }}{% else %}Registra pacco{% endif %}{% endblock %}
+
+{% block content %}
+<h1>{% if object %}Modifica pacco #{{ object.pk }}{% else %}Registra pacco{% endif %}</h1>
+
+{% if not object and batch %}
+  <div class="lot-banner">
+    {% if complete %}
+      <p><strong>{{ batch.name }}</strong> è completo: {{ registered }} di {{ expected }} pacchi registrati. Se ne hai altri, registrali pure: il totale sale da solo.</p>
+    {% elif expected %}
+      <p><strong>{{ batch.name }}</strong>: pacco {{ next_number }} di {{ expected }}</p>
+    {% else %}
+      <p><strong>{{ batch.name }}</strong>: {% if registered == 1 %}1 pacco registrato{% else %}{{ registered }} pacchi registrati{% endif %} finora</p>
+    {% endif %}
+    {% include "inventory/_progress.html" with registered=registered expected=expected %}
+    <p class="lot-edit"><a href="{% url 'inventory:batch_update' batch.pk %}?da=registra">{% if expected %}Cambia il totale{% else %}Indica il totale{% endif %}</a></p>
+  </div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="stack" data-submit-once>
+  {% csrf_token %}
+  {% for error in form.non_field_errors %}<p class="error" role="alert">{{ error }}</p>{% endfor %}
+
+  <div class="field{% if form.photo.errors %} has-error{% endif %}">
+    {{ form.photo }}
+    <label class="photo-drop{% if object %} has-photo{% endif %}" for="{{ form.photo.id_for_label }}">
+      <img id="photo-preview" alt="Anteprima della foto"
+           {% if object %}src="{% url 'inventory:image' object.pk 'foto' %}?v={{ object.updated_at|date:'U' }}"{% else %}hidden{% endif %}>
+      <span class="photo-prompt">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3v11H4V8Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        {% if object %}Cambia foto{% else %}Scatta o scegli la foto{% endif %}
+      </span>
+    </label>
+    {% for error in form.photo.errors %}<p class="error">{{ error }}</p>{% endfor %}
+  </div>
+
+  <div class="field{% if form.weight_kg.errors %} has-error{% endif %}">
+    <label for="{{ form.weight_kg.id_for_label }}">Peso</label>
+    <div class="readout-input">{{ form.weight_kg }}<span>kg</span></div>
+    {% for error in form.weight_kg.errors %}<p class="error">{{ error }}</p>{% endfor %}
+  </div>
+
+  {% include "inventory/_field.html" with field=form.batch %}
+  {% include "inventory/_field.html" with field=form.notes %}
+
+  <div class="actions">
+    {% if object %}
+      <button class="btn btn-primary" type="submit">Salva modifiche</button>
+      <a class="btn btn-quiet" href="{% url 'inventory:detail' object.pk %}">Annulla</a>
+    {% else %}
+      <button class="btn btn-primary" type="submit" name="again" value="1">Salva e registra un altro</button>
+      <button class="btn btn-secondary" type="submit">Salva</button>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+{% load static %}
+<script src="{% static 'js/package-form.js' %}" defer></script>
+{% endblock %}

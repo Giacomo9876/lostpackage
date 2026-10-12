@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Prezzo al kg{% endblock %}
+
+{% block content %}
+<h1>Prezzo al kg</h1>
+
+<form method="post" class="stack">
+  {% csrf_token %}
+  <div class="field{% if form.price_per_kg.errors %} has-error{% endif %}">
+    <label for="{{ form.price_per_kg.id_for_label }}">Prezzo al kg</label>
+    <div class="readout-input">{{ form.price_per_kg }}<span>€/kg</span></div>
+    {% for error in form.price_per_kg.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    <p class="hint">Vale per tutti i pacchi in magazzino. Le vendite già registrate mantengono il prezzo a cui sono state fatte.</p>
+  </div>
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">Salva prezzo</button>
+    <a class="btn btn-quiet" href="{% url 'inventory:list' %}">Annulla</a>
+  </div>
+</form>
+{% endblock %}

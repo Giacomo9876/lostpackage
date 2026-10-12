@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Pacco #{{ object.pk }}{% endblock %}
+
+{% block content %}
+{% if object.is_sold %}
+  <a class="back" href="{% url 'inventory:history' %}{% if request.session.history_qs %}?{{ request.session.history_qs }}{% endif %}">Torna allo storico</a>
+{% else %}
+  <a class="back" href="{% url 'inventory:list' %}{% if request.session.list_qs %}?{{ request.session.list_qs }}{% endif %}">Torna al magazzino</a>
+{% endif %}
+
+<a class="detail-photo" href="{% url 'inventory:image' object.pk 'foto' %}?v={{ object.updated_at|date:'U' }}">
+  <img src="{% url 'inventory:image' object.pk 'foto' %}?v={{ object.updated_at|date:'U' }}" alt="Foto del pacco #{{ object.pk }}">
+</a>
+
+<div class="readout" role="group" aria-label="Peso del pacco">
+  <span class="readout-value">{{ object.weight_kg|floatformat:3 }}</span>
+  <span class="readout-unit">kg</span>
+  <span class="readout-id">#{{ object.pk }}</span>
+</div>
+
+<dl class="facts">
+  {% if object.is_sold %}
+    <div><dt>Stato</dt><dd><span class="tag tag-sold">Venduto</span></dd></div>
+    <div><dt>Prezzo</dt><dd><strong>{{ object.sold_price|floatformat:2 }} €</strong></dd></div>
+    <div>
+      <dt>Venduto il</dt>
+      <dd>{{ object.sold_at|date:"j F Y, H:i"|lower }}{% if object.sold_by %} da {{ object.sold_by.get_username }}{% endif %}</dd>
+    </div>
+  {% else %}
+    <div><dt>Prezzo</dt><dd><strong>{{ price|floatformat:2 }} €</strong> a {{ price_per_kg|floatformat:2 }} € al kg</dd></div>
+  {% endif %}
+  <div><dt>Lotto</dt><dd>{% if object.batch %}{{ object.batch.name }}{% else %}Nessuno{% endif %}</dd></div>
+  {% if object.notes %}<div><dt>Note</dt><dd>{{ object.notes }}</dd></div>{% endif %}
+  <div>
+    <dt>Registrato</dt>
+    <dd>{{ object.created_at|date:"j F Y, H:i"|lower }}{% if object.created_by %} da {{ object.created_by.get_username }}{% endif %}</dd>
+  </div>
+</dl>
+
+<div class="actions">
+  {% if object.is_sold %}
+    <a class="btn btn-secondary" href="{% url 'inventory:sell' object.pk %}">Correggi il prezzo</a>
+    <form method="post" action="{% url 'inventory:restore' object.pk %}">
+      {% csrf_token %}
+      <button class="btn btn-secondary" type="submit">Rimetti in magazzino</button>
+    </form>
+  {% else %}
+    <a class="btn btn-primary" href="{% url 'inventory:sell' object.pk %}">Venduto</a>
+    <a class="btn btn-secondary" href="{% url 'inventory:update' object.pk %}">Modifica</a>
+  {% endif %}
+</div>
+
+<p class="fine-print">
+  {% if object.is_sold %}
+    <a href="{% url 'inventory:update' object.pk %}">Modifica i dati del pacco</a>
+  {% else %}
+    <a href="{% url 'inventory:delete' object.pk %}">Elimina un pacco registrato per errore</a>
+  {% endif %}
+</p>
+{% endblock %}

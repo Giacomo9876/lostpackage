@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Lotti{% endblock %}
+
+{% block content %}
+<h1>Lotti</h1>
+
+<div class="actions lots-head">
+  <a class="btn btn-primary" href="{% url 'inventory:batch_create' %}">Nuovo lotto</a>
+</div>
+
+{% if batches %}
+  <ul class="lots">
+    {% for batch in batches %}
+      <li class="lot">
+        <div class="lot-head">
+          <strong>{{ batch.name }}</strong>
+          <a href="{% url 'inventory:batch_update' batch.pk %}">Modifica</a>
+        </div>
+        {% if batch.expected_count %}
+          <p class="lot-count">
+            {{ batch.registered }} di {{ batch.expected_count }} registrati
+            {% if batch.registered >= batch.expected_count %}<span class="tag tag-exact">Completo</span>{% endif %}
+          </p>
+          {% include "inventory/_progress.html" with registered=batch.registered expected=batch.expected_count %}
+        {% else %}
+          <p class="lot-count">{% if batch.registered == 1 %}1 registrato{% else %}{{ batch.registered }} registrati{% endif %} <span class="tag">Totale da indicare</span></p>
+        {% endif %}
+        <p class="lot-stats">{{ batch.in_stock }} in magazzino, {{ batch.sold }} vendut{{ batch.sold|pluralize:"o,i" }}</p>
+        <div class="actions">
+          {% if batch.expected_count and batch.registered >= batch.expected_count %}
+            <a class="btn btn-secondary" href="{% url 'inventory:create' %}?lotto={{ batch.pk }}">Aggiungi un pacco</a>
+          {% else %}
+            <a class="btn btn-primary" href="{% url 'inventory:create' %}?lotto={{ batch.pk }}">Registra pacchi</a>
+          {% endif %}
+          <a class="btn btn-secondary" href="{% url 'inventory:list' %}?batch={{ batch.pk }}">Vedi in magazzino</a>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="empty">
+    <p><strong>Nessun lotto.</strong> Un lotto è un gruppo di pacchi arrivati insieme: indica quanti sono (anche dopo, se non lo sai ancora), poi registrali uno a uno con la foto.</p>
+    <a class="btn btn-primary" href="{% url 'inventory:batch_create' %}">Crea il primo lotto</a>
+  </div>
+{% endif %}
+{% endblock %}

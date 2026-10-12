@@ -1,0 +1,4 @@
+{% if expected %}
+  <progress max="{{ expected }}" value="{% if registered > expected %}{{ expected }}{% else %}{{ registered }}{% endif %}"
+            aria-label="Pacchi registrati: {{ registered }} di {{ expected }}"></progress>
+{% endif %}

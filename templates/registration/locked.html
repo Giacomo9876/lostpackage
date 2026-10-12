@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Accesso bloccato{% endblock %}
+
+{% block content %}
+<section class="login">
+  <h1>Accesso bloccato</h1>
+  <p class="error" role="alert">Troppi tentativi di accesso falliti per questo utente.</p>
+  <p>Riprova tra qualche minuto. Se hai dimenticato la password, chiedi a chi gestisce il gestionale di reimpostarla.</p>
+  <a class="btn btn-primary" href="{% url 'login' %}">Torna all'accesso</a>
+</section>
+{% endblock %}

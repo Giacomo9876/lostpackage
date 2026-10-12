@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Elimina pacco #{{ object.pk }}{% endblock %}
+
+{% block content %}
+<h1>Eliminare il pacco #{{ object.pk }}?</h1>
+
+<div class="parcel parcel-static">
+  <img src="{% url 'inventory:image' object.pk 'miniatura' %}?v={{ object.updated_at|date:'U' }}"
+       alt="Foto del pacco #{{ object.pk }}" width="96" height="96">
+  <span class="parcel-body">
+    <span class="weight">{{ object.weight_kg|floatformat:3 }}<small>kg</small></span>
+    {% if object.batch %}<span class="batch-name">{{ object.batch.name }}</span>{% endif %}
+    {% if object.notes %}<span class="note">{{ object.notes }}</span>{% endif %}
+  </span>
+</div>
+
+<p>Usa questa funzione solo per un pacco registrato per errore: sparisce del tutto, foto compresa, e non si può annullare.</p>
+<p>Se il pacco è stato venduto, usa invece <strong>Venduto</strong>: finisce nello storico.</p>
+
+<form method="post" class="actions">
+  {% csrf_token %}
+  <button class="btn btn-danger" type="submit">Elimina il pacco</button>
+  <a class="btn btn-quiet" href="{% url 'inventory:detail' object.pk %}">Annulla</a>
+</form>
+{% endblock %}
