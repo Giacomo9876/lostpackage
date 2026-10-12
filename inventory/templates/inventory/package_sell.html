@@ -1,14 +1,19 @@
 {% extends "base.html" %}
-{% block title %}{% if object.is_sold %}Correggi prezzo{% else %}Vendi pacco #{{ object.pk }}{% endif %}{% endblock %}
+{% block title %}{% if object.is_sold %}Correggi vendita{% else %}Vendi pacco #{{ object.pk }}{% endif %}{% endblock %}
 
 {% block content %}
-<h1>{% if object.is_sold %}Correggi il prezzo del pacco #{{ object.pk }}{% else %}Vendi il pacco #{{ object.pk }}{% endif %}</h1>
+<h1>{% if object.is_sold %}Correggi la vendita del pacco #{{ object.pk }}{% else %}Vendi il pacco #{{ object.pk }}{% endif %}</h1>
 
 <div class="parcel parcel-static">
-  <img src="{% url 'inventory:image' object.pk 'miniatura' %}?v={{ object.updated_at|date:'U' }}"
-       alt="Foto del pacco #{{ object.pk }}" width="96" height="96">
+  {% if object.has_photo %}
+    <img src="{% url 'inventory:image' object.pk 'miniatura' %}?v={{ object.updated_at|date:'U' }}"
+         alt="Foto del pacco #{{ object.pk }}" width="96" height="96">
+  {% else %}
+    <span class="noimg" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9"/></svg></span>
+  {% endif %}
   <span class="parcel-body">
     <span class="weight">{{ object.weight_kg|floatformat:3 }}<small>kg</small></span>
+    <span class="parcel-meta">{% if object.premium %}<span class="tag tag-exact">Premium</span>{% endif %}</span>
     {% if object.batch %}<span class="batch-name">{{ object.batch.name }}</span>{% endif %}
     {% if object.notes %}<span class="note">{{ object.notes }}</span>{% endif %}
   </span>
@@ -16,18 +21,25 @@
 
 <form method="post" class="stack">
   {% csrf_token %}
-  <div class="field{% if form.sold_price.errors %} has-error{% endif %}">
-    <label for="{{ form.sold_price.id_for_label }}">Prezzo di vendita</label>
-    <div class="readout-input">{{ form.sold_price }}<span>€</span></div>
-    {% for error in form.sold_price.errors %}<p class="error">{{ error }}</p>{% endfor %}
-    {% if object.is_sold %}
-      <p class="hint">Il prezzo resta quello della vendita anche se cambi il prezzo al kg: lo modifichi solo qui.</p>
-    {% else %}
-      <p class="hint">Calcolato dal peso: {{ object.weight_kg|floatformat:3 }} kg × {{ price_per_kg|floatformat:2 }} € = {{ price|floatformat:2 }} €. Cambialo se vendi a un prezzo diverso.</p>
-    {% endif %}
+  {% if can_set_price %}
+    <div class="field{% if form.sold_price.errors %} has-error{% endif %}">
+      <label for="{{ form.sold_price.id_for_label }}">Prezzo di vendita</label>
+      <div class="readout-input">{{ form.sold_price }}<span>€</span></div>
+      {% for error in form.sold_price.errors %}<p class="error">{{ error }}</p>{% endfor %}
+      {% if object.is_sold %}
+        <p class="hint">Il prezzo resta quello della vendita anche se cambiano i prezzi: lo modifichi solo qui.</p>
+      {% else %}
+        <p class="hint">Calcolato: {{ price|floatformat:2 }} € ({{ price_note }}). Cambialo se vendi a un prezzo diverso.</p>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="price-preview">Prezzo: <strong>{{ price|floatformat:2 }} €</strong> <span class="hint-inline">({{ price_note }})</span></p>
+  {% endif %}
+  <div class="checks">
+    <label class="check">{{ form.receipt }} <span>Scontrino emesso</span></label>
   </div>
   <div class="actions">
-    <button class="btn btn-primary" type="submit">{% if object.is_sold %}Salva prezzo{% else %}Conferma vendita{% endif %}</button>
+    <button class="btn btn-primary" type="submit">{% if object.is_sold %}Salva{% else %}Conferma vendita{% endif %}</button>
     <a class="btn btn-quiet" href="{% url 'inventory:detail' object.pk %}">Annulla</a>
   </div>
 </form>

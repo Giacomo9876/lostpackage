@@ -8,9 +8,11 @@
   <a class="back" href="{% url 'inventory:list' %}{% if request.session.list_qs %}?{{ request.session.list_qs }}{% endif %}">Torna al magazzino</a>
 {% endif %}
 
+{% if object.has_photo %}
 <a class="detail-photo" href="{% url 'inventory:image' object.pk 'foto' %}?v={{ object.updated_at|date:'U' }}">
   <img src="{% url 'inventory:image' object.pk 'foto' %}?v={{ object.updated_at|date:'U' }}" alt="Foto del pacco #{{ object.pk }}">
 </a>
+{% endif %}
 
 <div class="readout" role="group" aria-label="Peso del pacco">
   <span class="readout-value">{{ object.weight_kg|floatformat:3 }}</span>
@@ -22,13 +24,21 @@
   {% if object.is_sold %}
     <div><dt>Stato</dt><dd><span class="tag tag-sold">Venduto</span></dd></div>
     <div><dt>Prezzo</dt><dd><strong>{{ object.sold_price|floatformat:2 }} €</strong></dd></div>
+    <div><dt>Scontrino</dt><dd>{% if object.receipt %}Emesso{% else %}<span class="tag tag-warn">Non emesso</span>{% endif %}</dd></div>
     <div>
       <dt>Venduto il</dt>
       <dd>{{ object.sold_at|date:"j F Y, H:i"|lower }}{% if object.sold_by %} da {{ object.sold_by.get_username }}{% endif %}</dd>
     </div>
   {% else %}
-    <div><dt>Prezzo</dt><dd><strong>{{ price|floatformat:2 }} €</strong> a {{ price_per_kg|floatformat:2 }} € al kg</dd></div>
+    <div>
+      <dt>Prezzo</dt>
+      <dd>
+        <strong>{{ price|floatformat:2 }} €</strong> <span class="hint-inline">({{ price_note }})</span>
+      </dd>
+    </div>
   {% endif %}
+  {% if object.premium %}<div><dt>Tipo</dt><dd><span class="tag tag-exact">Premium</span></dd></div>{% endif %}
+  <div><dt>Centro</dt><dd>{{ object.store.label }}</dd></div>
   <div><dt>Lotto</dt><dd>{% if object.batch %}{{ object.batch.name }}{% else %}Nessuno{% endif %}</dd></div>
   {% if object.notes %}<div><dt>Note</dt><dd>{{ object.notes }}</dd></div>{% endif %}
   <div>
@@ -37,24 +47,26 @@
   </div>
 </dl>
 
-<div class="actions">
-  {% if object.is_sold %}
-    <a class="btn btn-secondary" href="{% url 'inventory:sell' object.pk %}">Correggi il prezzo</a>
-    <form method="post" action="{% url 'inventory:restore' object.pk %}">
-      {% csrf_token %}
-      <button class="btn btn-secondary" type="submit">Rimetti in magazzino</button>
-    </form>
+{% if object.is_sold %}
+  {% if can_edit or can_fix_price %}
+    <div class="actions">
+      {% if can_fix_price %}<a class="btn btn-secondary" href="{% url 'inventory:sell' object.pk %}">Correggi prezzo e scontrino</a>{% endif %}
+      {% if can_edit %}
+        <form method="post" action="{% url 'inventory:restore' object.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-secondary" type="submit">Rimetti in magazzino</button>
+        </form>
+      {% endif %}
+    </div>
+    {% if can_edit %}<p class="fine-print"><a href="{% url 'inventory:update' object.pk %}">Modifica foto, lotto e note</a></p>{% endif %}
   {% else %}
+    <p class="fine-print">Vendita di un giorno passato: la può modificare solo un titolare.</p>
+  {% endif %}
+{% else %}
+  <div class="actions">
     <a class="btn btn-primary" href="{% url 'inventory:sell' object.pk %}">Venduto</a>
     <a class="btn btn-secondary" href="{% url 'inventory:update' object.pk %}">Modifica</a>
-  {% endif %}
-</div>
-
-<p class="fine-print">
-  {% if object.is_sold %}
-    <a href="{% url 'inventory:update' object.pk %}">Modifica i dati del pacco</a>
-  {% else %}
-    <a href="{% url 'inventory:delete' object.pk %}">Elimina un pacco registrato per errore</a>
-  {% endif %}
-</p>
+  </div>
+  <p class="fine-print"><a href="{% url 'inventory:delete' object.pk %}">Elimina un pacco registrato per errore</a></p>
+{% endif %}
 {% endblock %}

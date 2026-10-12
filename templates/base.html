@@ -12,12 +12,15 @@
 <body>
   <header class="top">
     <div class="top-inner">
-      <a class="brand" href="{% url 'inventory:list' %}">Pacchi Perduti</a>
+      <a class="brand" href="{% url 'inventory:dashboard' %}">Pacchi Perduti</a>
       {% if user.is_authenticated %}
-      <form method="post" action="{% url 'logout' %}">
-        {% csrf_token %}
-        <button class="top-link" type="submit">Esci</button>
-      </form>
+      <div class="who">
+        {% if scope %}<span class="who-role">{% if scope.is_owner %}Titolare{% else %}{{ scope.store.name }}{% endif %}</span>{% endif %}
+        <form method="post" action="{% url 'logout' %}">
+          {% csrf_token %}
+          <button class="top-link" type="submit">Esci</button>
+        </form>
+      </div>
       {% endif %}
     </div>
   </header>
@@ -31,26 +34,34 @@
     {% block content %}{% endblock %}
   </main>
 
-  {% if user.is_authenticated %}
+  {% if user.is_authenticated and scope %}
   {% with page=request.resolver_match.url_name %}
   <nav class="dock" aria-label="Navigazione principale">
     <div class="dock-inner">
-      <a class="dock-link" href="{% url 'inventory:list' %}"{% if page == 'list' %} aria-current="page"{% endif %}>
+      <a class="dock-link" href="{% url 'inventory:dashboard' %}"{% if page == 'dashboard' or page == 'store' %} aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6.5v6.5H4zM13.5 4H20v6.5h-6.5zM4 13.5h6.5V20H4zM13.5 13.5H20V20h-6.5z"/></svg>
+        Home
+      </a>
+      <a class="dock-link" href="{% url 'inventory:list' %}"{% if page == 'list' or page|slice:":6" == 'batch_' %} aria-current="page"{% endif %}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9"/></svg>
         Magazzino
       </a>
-      <a class="dock-link" href="{% url 'inventory:batch_list' %}"{% if page|slice:":6" == 'batch_' %} aria-current="page"{% endif %}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12.5 9 5 9-5M3 17l9 5 9-5"/></svg>
-        Lotti
+      {% if not scope.is_owner %}
+      <a class="dock-add" href="{% url 'inventory:closing' %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+        Chiusura
       </a>
-      <a class="dock-add" href="{% url 'inventory:create' %}">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        Registra
-      </a>
+      {% endif %}
       <a class="dock-link" href="{% url 'inventory:history' %}"{% if page == 'history' %} aria-current="page"{% endif %}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
         Storico
       </a>
+      {% if scope.is_owner %}
+      <a class="dock-link" href="{% url 'inventory:price' %}"{% if page == 'price' %} aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7.5A7 7 0 1 0 19 16.5M5 10.5h9M5 13.5h9"/></svg>
+        Prezzi
+      </a>
+      {% endif %}
     </div>
   </nav>
   {% endwith %}

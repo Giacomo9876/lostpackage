@@ -63,6 +63,8 @@ MIDDLEWARE = [
     # Default-deny: ogni vista richiede il login, salvo quelle marcate
     # con @login_not_required (login e login dell'admin).
     "django.contrib.auth.middleware.LoginRequiredMiddleware",
+    # Dopo il login: ruolo e centro dell'utente (request.scope); senza profilo non si entra.
+    "inventory.access.StoreAccessMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # Ultimo: risponde con la pagina di blocco quando ci sono troppi accessi falliti.
@@ -83,6 +85,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "inventory.context.scope",
             ],
         },
     },
@@ -129,7 +132,7 @@ AXES_ENABLED = env_bool("AXES_ENABLED", True)
 SILENCED_SYSTEM_CHECKS = ["axes.W006"]
 
 LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "inventory:list"
+LOGIN_REDIRECT_URL = "inventory:dashboard"
 LOGOUT_REDIRECT_URL = "login"
 
 LANGUAGE_CODE = "it"

@@ -1,61 +1,13 @@
-import shutil
-import tempfile
 from decimal import Decimal
-from io import BytesIO
 
-from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
 
-from .models import Batch, Package, ShopSettings
-
-TEMP_MEDIA = tempfile.mkdtemp(prefix="pacchi-test-media-")
-
-
-def tearDownModule():
-    shutil.rmtree(TEMP_MEDIA, ignore_errors=True)
-
-
-def make_image(size=(800, 600), name="IMG_0001.jpg", orientation=None, fmt="JPEG"):
-    """Genera una foto in memoria, opzionalmente con l'orientamento EXIF come fanno i telefoni."""
-    img = Image.new("RGB", size, "tomato")
-    buffer = BytesIO()
-    kwargs = {}
-    if orientation:
-        exif = Image.Exif()
-        exif[0x0112] = orientation
-        kwargs["exif"] = exif
-    img.save(buffer, fmt, **kwargs)
-    return SimpleUploadedFile(name, buffer.getvalue(), content_type=f"image/{fmt.lower()}")
-
-
-def create_package(weight, batch=None, notes="", sold_price=None, sold_at=None):
-    package = Package.objects.create(
-        weight_kg=Decimal(str(weight)),
-        batch=batch,
-        notes=notes,
-        photo=make_image(),
-        thumb=make_image((100, 100)),
-    )
-    if sold_price is not None:
-        package.sold_price = Decimal(str(sold_price))
-        package.sold_at = sold_at or timezone.now()
-        package.save()
-    return package
-
-
-@override_settings(MEDIA_ROOT=TEMP_MEDIA)
-class BaseCase(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = get_user_model().objects.create_user("marco", password="una-password-lunga-123")
-
-    def setUp(self):
-        self.client.force_login(self.user)
-
+from ..models import Batch, Package, Profile, ShopSettings
+from .helpers import TEMP_MEDIA, BaseCase, create_package, make_batch, make_image, make_user
 
 class AccessTests(TestCase):
     """Tutto richiede il login, tranne la pagina di accesso."""
@@ -63,8 +15,11 @@ class AccessTests(TestCase):
     @override_settings(MEDIA_ROOT=TEMP_MEDIA)
     def test_anonymous_is_redirected_to_login_everywhere(self):
         package = create_package(1)
-        batch = Batch.objects.create(name="A", expected_count=2)
+        batch = make_batch(name="A", expected_count=2)
         urls = [
+            reverse("inventory:dashboard"),
+            reverse("inventory:store", args=[1]),
+            reverse("inventory:closing"),
             reverse("inventory:list"),
             reverse("inventory:history"),
             reverse("inventory:create"),
@@ -91,13 +46,13 @@ class AccessTests(TestCase):
         self.assertEqual(self.client.get("/admin/login/").status_code, 200)
 
     def test_login_and_logout(self):
-        get_user_model().objects.create_user("anna", password="una-password-lunga-123")
+        make_user("anna", Profile.Role.MANAGER, "Globo")
         response = self.client.post(reverse("login"), {"username": "anna", "password": "sbagliata"})
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "error")
 
         response = self.client.post(reverse("login"), {"username": "anna", "password": "una-password-lunga-123"})
-        self.assertRedirects(response, reverse("inventory:list"), fetch_redirect_response=False)
+        self.assertRedirects(response, reverse("inventory:dashboard"), fetch_redirect_response=False)
 
         self.assertEqual(self.client.get(reverse("logout")).status_code, 405)  # solo POST
         self.client.post(reverse("logout"))
@@ -119,7 +74,7 @@ class AccessTests(TestCase):
 class CreateTests(BaseCase):
     def setUp(self):
         super().setUp()
-        self.batch = Batch.objects.create(name="Lotto 1", expected_count=5)
+        self.batch = make_batch(name="Lotto 1", expected_count=5)
 
     def post(self, **overrides):
         data = {"photo": make_image(), "weight_kg": "2,35", "batch": self.batch.pk, "notes": ""}
@@ -168,9 +123,17 @@ class CreateTests(BaseCase):
         self.assertIn("photo", response.context["form"].errors)
         self.assertEqual(Package.objects.count(), 0)
 
-    def test_photo_is_required_on_create(self):
+    def test_photo_is_optional(self):
+        # A fine giornata nessuno ha il tempo di fotografare ogni pacco.
         response = self.client.post(reverse("inventory:create"), {"weight_kg": "1,5", "batch": self.batch.pk})
-        self.assertIn("photo", response.context["form"].errors)
+        self.assertEqual(response.status_code, 302)
+        package = Package.objects.get()
+        self.assertFalse(package.has_photo)
+        self.assertEqual(package.weight_kg, Decimal("1.500"))
+
+    def test_premium_flag_is_saved(self):
+        self.post(premium="on")
+        self.assertTrue(Package.objects.get().premium)
 
     def test_invalid_weights_are_rejected(self):
         for raw in ("", "0", "-1", "abc", "1001", "2,3456"):
@@ -186,11 +149,16 @@ class CreateTests(BaseCase):
         self.assertFalse(package.is_sold)
         self.assertEqual(package.created_by, self.user)
 
-    def test_lot_is_required(self):
+    def test_lot_is_optional(self):
         response = self.post(batch="")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("batch", response.context["form"].errors)
-        self.assertEqual(Package.objects.count(), 0)
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(Package.objects.get().batch)
+
+    def test_saving_without_lot_does_not_bring_the_old_lot_back(self):
+        self.post()  # con lotto: viene ricordato
+        self.assertEqual(self.client.get(reverse("inventory:create")).context["form"].initial["batch"], self.batch.pk)
+        self.post(batch="")
+        self.assertIsNone(self.client.get(reverse("inventory:create")).context["form"].initial["batch"])
 
     def test_save_and_register_another_stays_on_same_lot(self):
         response = self.post(again="1")
@@ -218,7 +186,7 @@ class CreateTests(BaseCase):
         self.assertEqual(response.context["registered"], 2)
 
     def test_last_lot_is_remembered(self):
-        other = Batch.objects.create(name="Lotto 2", expected_count=3)
+        other = make_batch(name="Lotto 2", expected_count=3)
         self.post(batch=other.pk)
         response = self.client.get(reverse("inventory:create"))
         self.assertEqual(response.context["form"].initial["batch"], other.pk)
@@ -229,7 +197,7 @@ class CreateTests(BaseCase):
                 self.assertEqual(self.client.get(reverse("inventory:create"), {"lotto": raw}).status_code, 200)
 
     def test_completing_a_lot_returns_to_lot_list(self):
-        small = Batch.objects.create(name="Piccolo", expected_count=2)
+        small = make_batch(name="Piccolo", expected_count=2)
         first = self.post(batch=small.pk, again="1")
         self.assertIn(f"lotto={small.pk}", first["Location"])
         second = self.post(batch=small.pk, again="1")
@@ -238,7 +206,7 @@ class CreateTests(BaseCase):
         self.assertContains(followed, "completo: 2 di 2 pacchi registrati")
 
     def test_going_over_the_expected_count_is_allowed_and_raises_the_total(self):
-        small = Batch.objects.create(name="Piccolo", expected_count=1)
+        small = make_batch(name="Piccolo", expected_count=1)
         create_package(1, small)
         response = self.client.get(reverse("inventory:create"), {"lotto": small.pk})
         self.assertTrue(response.context["complete"])
@@ -253,7 +221,7 @@ class CreateTests(BaseCase):
         self.assertContains(self.client.get(extra["Location"]), "ora ha 2 pacchi (ne erano previsti 1)")
 
     def test_lot_without_total_never_completes_and_keeps_going(self):
-        open_lot = Batch.objects.create(name="Aperto")
+        open_lot = make_batch(name="Aperto")
         for _ in range(3):
             response = self.post(batch=open_lot.pk, again="1")
             self.assertIn(f"lotto={open_lot.pk}", response["Location"])
@@ -264,13 +232,12 @@ class CreateTests(BaseCase):
         response = self.client.get(reverse("inventory:create"), {"lotto": self.batch.pk})
         self.assertContains(response, f"{reverse('inventory:batch_update', args=[self.batch.pk])}?da=registra")
         self.assertContains(response, "Cambia il totale")
-        open_lot = Batch.objects.create(name="Aperto")
+        open_lot = make_batch(name="Aperto")
         self.assertContains(self.client.get(reverse("inventory:create"), {"lotto": open_lot.pk}), "Indica il totale")
 
-    def test_without_any_lot_you_are_sent_to_create_one(self):
+    def test_registering_works_without_any_lot(self):
         Batch.objects.all().delete()
-        response = self.client.get(reverse("inventory:create"))
-        self.assertRedirects(response, reverse("inventory:batch_create"))
+        self.assertEqual(self.client.get(reverse("inventory:create")).status_code, 200)
 
 
 class BatchTests(BaseCase):
@@ -287,11 +254,11 @@ class BatchTests(BaseCase):
 
     def test_name_is_suggested_and_skips_existing_ones(self):
         self.assertEqual(self.client.get(reverse("inventory:batch_create")).context["form"].initial["name"], "Lotto 1")
-        Batch.objects.create(name="Lotto 1", expected_count=3)
+        make_batch(name="Lotto 1", expected_count=3)
         self.assertEqual(self.client.get(reverse("inventory:batch_create")).context["form"].initial["name"], "Lotto 2")
 
     def test_duplicate_name_is_rejected_case_insensitively(self):
-        Batch.objects.create(name="Lotto 1", expected_count=3)
+        make_batch(name="Lotto 1", expected_count=3)
         response = self.client.post(reverse("inventory:batch_create"), {"name": "lotto 1", "expected_count": "4"})
         self.assertEqual(response.status_code, 200)
         self.assertIn("name", response.context["form"].errors)
@@ -318,7 +285,7 @@ class BatchTests(BaseCase):
         self.assertNotContains(followed, "<progress")
 
     def test_total_can_be_set_later_while_registering(self):
-        batch = Batch.objects.create(name="Lotto 1")
+        batch = make_batch(name="Lotto 1")
         create_package(1, batch)
         url = f"{reverse('inventory:batch_update', args=[batch.pk])}?da=registra"
         response = self.client.post(url, {"name": "Lotto 1", "expected_count": "12"})
@@ -330,13 +297,13 @@ class BatchTests(BaseCase):
         self.assertContains(self.client.get(response["Location"]), "pacco 2 di 12")
 
     def test_total_can_be_cleared_again(self):
-        batch = Batch.objects.create(name="Lotto 1", expected_count=5)
+        batch = make_batch(name="Lotto 1", expected_count=5)
         self.client.post(reverse("inventory:batch_update", args=[batch.pk]), {"name": "Lotto 1", "expected_count": ""})
         batch.refresh_from_db()
         self.assertEqual(batch.expected_count, 0)
 
     def test_total_cannot_be_lower_than_already_registered(self):
-        batch = Batch.objects.create(name="Lotto 1", expected_count=10)
+        batch = make_batch(name="Lotto 1", expected_count=10)
         for _ in range(4):
             create_package(1, batch)
         response = self.client.post(
@@ -352,13 +319,13 @@ class BatchTests(BaseCase):
         self.assertEqual(ok.status_code, 302)
 
     def test_return_parameter_is_not_an_open_redirect(self):
-        batch = Batch.objects.create(name="Lotto 1", expected_count=3)
+        batch = make_batch(name="Lotto 1", expected_count=3)
         url = f"{reverse('inventory:batch_update', args=[batch.pk])}?da=https://example.com"
         response = self.client.post(url, {"name": "Lotto 1", "expected_count": "3"})
         self.assertRedirects(response, reverse("inventory:batch_list"), fetch_redirect_response=False)
 
     def test_list_shows_progress_and_stock_and_sold_counts(self):
-        batch = Batch.objects.create(name="Lotto 1", expected_count=5)
+        batch = make_batch(name="Lotto 1", expected_count=5)
         create_package(1, batch)
         create_package(1, batch)
         create_package(1, batch, sold_price=25)
@@ -370,7 +337,7 @@ class BatchTests(BaseCase):
         self.assertNotContains(response, "Completo")
 
     def test_complete_lot_is_marked_but_still_lets_you_add_a_package(self):
-        batch = Batch.objects.create(name="Lotto 1", expected_count=1)
+        batch = make_batch(name="Lotto 1", expected_count=1)
         create_package(1, batch)
         response = self.client.get(reverse("inventory:batch_list"))
         self.assertContains(response, "Completo")
@@ -378,7 +345,7 @@ class BatchTests(BaseCase):
         self.assertContains(response, f"{reverse('inventory:create')}?lotto={batch.pk}")
 
     def test_lot_without_total_is_listed_and_flagged(self):
-        batch = Batch.objects.create(name="Vecchio")  # expected_count = 0
+        batch = make_batch(name="Vecchio")  # expected_count = 0
         create_package(1, batch)
         response = self.client.get(reverse("inventory:batch_list"))
         self.assertContains(response, "1 registrato")
@@ -387,7 +354,7 @@ class BatchTests(BaseCase):
         self.assertNotContains(response, "<progress")
 
     def test_edit_lot(self):
-        batch = Batch.objects.create(name="Lotto 1", expected_count=3)
+        batch = make_batch(name="Lotto 1", expected_count=3)
         response = self.client.post(
             reverse("inventory:batch_update", args=[batch.pk]), {"name": "Lotto uno", "expected_count": "8"}
         )
@@ -396,7 +363,7 @@ class BatchTests(BaseCase):
         self.assertEqual((batch.name, batch.expected_count), ("Lotto uno", 8))
 
     def test_renaming_a_lot_to_itself_is_allowed(self):
-        batch = Batch.objects.create(name="Lotto 1", expected_count=3)
+        batch = make_batch(name="Lotto 1", expected_count=3)
         response = self.client.post(
             reverse("inventory:batch_update", args=[batch.pk]), {"name": "Lotto 1", "expected_count": "4"}
         )
@@ -408,8 +375,8 @@ class SearchTests(BaseCase):
     def setUpTestData(cls):
         super().setUpTestData()
         with override_settings(MEDIA_ROOT=TEMP_MEDIA):
-            cls.batch_a = Batch.objects.create(name="A", expected_count=10)
-            cls.batch_b = Batch.objects.create(name="B", expected_count=10)
+            cls.batch_a = make_batch(name="A", expected_count=10)
+            cls.batch_b = make_batch(name="B", expected_count=10)
             cls.same = [create_package("2.350", cls.batch_a, f"gemello {i}") for i in range(3)]
             cls.near = create_package("2.380", cls.batch_b)
             cls.far = create_package("2.500", cls.batch_b)
@@ -474,8 +441,28 @@ class SearchTests(BaseCase):
 
 
 class PriceTests(BaseCase):
-    def test_default_price_is_25_euro_per_kg(self):
-        self.assertEqual(ShopSettings.load().price_per_kg, Decimal("25.00"))
+    """I prezzi li cambiano solo i titolari."""
+
+    def setUp(self):
+        super().setUp()
+        self.as_owner()
+
+    @staticmethod
+    def data(**overrides):
+        data = {
+            "price_per_kg": "25",
+            "premium_price_per_kg": "30",
+            "small_parcel_max_g": "200",
+            "small_parcel_price": "5",
+        }
+        data.update(overrides)
+        return data
+
+    def test_default_rules(self):
+        shop = ShopSettings.load()
+        self.assertEqual(shop.price_per_kg, Decimal("25.00"))
+        self.assertEqual(shop.premium_price_per_kg, Decimal("30.00"))
+        self.assertEqual((shop.small_parcel_max_g, shop.small_parcel_price), (200, Decimal("5.00")))
 
     def test_stock_list_shows_price_from_weight(self):
         create_package("2.350")
@@ -483,38 +470,59 @@ class PriceTests(BaseCase):
         self.assertEqual(response.context["packages"][0].price, Decimal("58.75"))
         self.assertContains(response, "58,75 €")
         self.assertContains(response, "25,00 € al kg")
+        self.assertContains(response, "fino a 200 g: 5,00 €")
+
+    def test_premium_package_costs_more_per_kg(self):
+        create_package("2.000", premium=True)
+        response = self.client.get(reverse("inventory:list"))
+        self.assertEqual(response.context["packages"][0].price, Decimal("60.00"))
+        self.assertContains(response, "Premium")
 
     def test_stock_value_summary(self):
         create_package("2.000")
         create_package("1.500")
+        create_package("0.100")  # pacco piccolo: 5 € fissi
         response = self.client.get(reverse("inventory:list"))
-        self.assertEqual(response.context["stock_value"], Decimal("87.50"))
-        self.assertContains(response, "valore 87,50 €")
-
-    def test_price_rounds_to_the_cent(self):
-        package = create_package("1.333")
-        self.assertEqual(package.price_at(Decimal("25.00")), Decimal("33.33"))
-        self.assertEqual(create_package("0.001").price_at(Decimal("25.00")), Decimal("0.03"))  # 0,025 arrotonda su
+        self.assertEqual(response.context["stock_value"], Decimal("92.50"))
+        self.assertContains(response, "valore 92,50 €")
 
     def test_price_can_be_changed_with_comma_or_dot(self):
         for raw, expected in (("27,5", "27.50"), ("30.00", "30.00")):
             with self.subTest(raw=raw):
-                response = self.client.post(reverse("inventory:price"), {"price_per_kg": raw})
+                response = self.client.post(reverse("inventory:price"), self.data(price_per_kg=raw))
                 self.assertEqual(response.status_code, 302)
                 self.assertEqual(ShopSettings.load().price_per_kg, Decimal(expected))
 
+    def test_all_four_rules_can_be_changed(self):
+        response = self.client.post(
+            reverse("inventory:price"),
+            self.data(price_per_kg="20", premium_price_per_kg="26,5", small_parcel_max_g="300", small_parcel_price="7,50"),
+        )
+        self.assertRedirects(response, reverse("inventory:dashboard"), fetch_redirect_response=False)
+        shop = ShopSettings.load()
+        self.assertEqual(
+            (shop.price_per_kg, shop.premium_price_per_kg, shop.small_parcel_max_g, shop.small_parcel_price),
+            (Decimal("20.00"), Decimal("26.50"), 300, Decimal("7.50")),
+        )
+
     def test_invalid_prices_are_rejected(self):
-        for raw in ("", "0", "-5", "abc"):
-            with self.subTest(raw=raw):
-                response = self.client.post(reverse("inventory:price"), {"price_per_kg": raw})
-                self.assertEqual(response.status_code, 200)
-                self.assertIn("price_per_kg", response.context["form"].errors)
-        self.assertEqual(ShopSettings.load().price_per_kg, Decimal("25.00"))
+        for field in ("price_per_kg", "premium_price_per_kg"):
+            for raw in ("", "0", "-5", "abc"):
+                with self.subTest(field=field, raw=raw):
+                    response = self.client.post(reverse("inventory:price"), self.data(**{field: raw}))
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn(field, response.context["form"].errors)
+        for field, raw in (("small_parcel_max_g", "-1"), ("small_parcel_max_g", "9999"), ("small_parcel_price", "-1")):
+            with self.subTest(field=field, raw=raw):
+                response = self.client.post(reverse("inventory:price"), self.data(**{field: raw}))
+                self.assertIn(field, response.context["form"].errors)
+        shop = ShopSettings.load()
+        self.assertEqual((shop.price_per_kg, shop.premium_price_per_kg), (Decimal("25.00"), Decimal("30.00")))
 
     def test_new_price_applies_to_stock_but_not_to_past_sales(self):
-        package = create_package("2.000")
+        create_package("2.000")
         sold = create_package("2.000", sold_price="50.00")
-        self.client.post(reverse("inventory:price"), {"price_per_kg": "30"})
+        self.client.post(reverse("inventory:price"), self.data(price_per_kg="30"))
 
         stock = self.client.get(reverse("inventory:list"))
         self.assertEqual(stock.context["packages"][0].price, Decimal("60.00"))
@@ -522,48 +530,89 @@ class PriceTests(BaseCase):
         self.assertEqual(history.context["revenue"], Decimal("50.00"))
         sold.refresh_from_db()
         self.assertEqual(sold.sold_price, Decimal("50.00"))
-        self.assertTrue(package.pk)
 
-    def test_price_form_returns_to_the_stock_search(self):
-        self.client.get(reverse("inventory:list"), {"peso": "2,35"})
-        response = self.client.post(reverse("inventory:price"), {"price_per_kg": "26"})
-        self.assertIn("peso=2%2C35", response["Location"])
+    def test_managers_cannot_open_or_change_prices(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse("inventory:price")).status_code, 403)
+        self.assertEqual(self.client.post(reverse("inventory:price"), self.data(price_per_kg="1")).status_code, 403)
+        self.assertEqual(ShopSettings.load().price_per_kg, Decimal("25.00"))
+        # il manager vede i prezzi in vigore, ma non il collegamento per cambiarli
+        response = self.client.get(reverse("inventory:list"))
+        self.assertContains(response, "25,00 € al kg")
+        self.assertNotContains(response, reverse("inventory:price"))
 
 
 class SaleTests(BaseCase):
     def setUp(self):
         super().setUp()
-        self.batch = Batch.objects.create(name="Lotto 1", expected_count=5)
+        self.batch = make_batch(name="Lotto 1", expected_count=5)
 
-    def sell(self, package, price):
-        return self.client.post(reverse("inventory:sell", args=[package.pk]), {"sold_price": price})
+    def sell(self, package, price=None, receipt=True):
+        data = {"receipt": "on"} if receipt else {}
+        if price is not None:
+            data["sold_price"] = price
+        return self.client.post(reverse("inventory:sell", args=[package.pk]), data)
 
-    def test_sale_form_is_prefilled_with_weight_times_price(self):
+    def test_manager_sees_the_computed_price_and_cannot_edit_it(self):
+        package = create_package("2.350", self.batch)
+        response = self.client.get(reverse("inventory:sell", args=[package.pk]))
+        self.assertContains(response, "58,75 €")
+        self.assertContains(response, "2,350 kg × 25,00 € al kg")
+        self.assertNotIn("sold_price", response.context["form"].fields)
+
+    def test_owner_sees_the_price_prefilled_and_editable(self):
+        self.as_owner()
         package = create_package("2.350", self.batch)
         response = self.client.get(reverse("inventory:sell", args=[package.pk]))
         self.assertContains(response, 'value="58,75"')
-        self.assertContains(response, "2,350 kg × 25,00 € = 58,75 €")
+        self.assertContains(response, "Calcolato: 58,75 € (2,350 kg × 25,00 € al kg)")
 
     def test_sale_moves_the_package_to_history(self):
         package = create_package("2.350", self.batch)
-        response = self.sell(package, "58,75")
+        response = self.sell(package)
         self.assertEqual(response.status_code, 302)
         package.refresh_from_db()
         self.assertTrue(package.is_sold)
         self.assertEqual(package.sold_price, Decimal("58.75"))
+        self.assertTrue(package.receipt)
         self.assertEqual(package.sold_by, self.user)
         self.assertLess((timezone.now() - package.sold_at).total_seconds(), 60)
         # Non è più in magazzino ma è nello storico.
         self.assertEqual(len(self.client.get(reverse("inventory:list")).context["packages"]), 0)
         self.assertEqual([p.pk for p in self.client.get(reverse("inventory:history")).context["packages"]], [package.pk])
 
-    def test_price_can_be_edited_at_sale(self):
+    def test_price_follows_the_rules_for_small_and_premium_packages(self):
+        small = create_package("0.150", self.batch)
+        premium = create_package("2.000", self.batch, premium=True)
+        self.sell(small)
+        self.sell(premium)
+        small.refresh_from_db()
+        premium.refresh_from_db()
+        self.assertEqual(small.sold_price, Decimal("5.00"))
+        self.assertEqual(premium.sold_price, Decimal("60.00"))
+
+    def test_a_manager_cannot_set_the_price_by_posting_it(self):
+        package = create_package("2.000", self.batch)
+        self.sell(package, price="1")
+        package.refresh_from_db()
+        self.assertEqual(package.sold_price, Decimal("50.00"))
+
+    def test_sale_without_receipt_is_recorded(self):
+        package = create_package("2.000", self.batch)
+        self.sell(package, receipt=False)
+        package.refresh_from_db()
+        self.assertFalse(package.receipt)
+
+    def test_owner_can_edit_the_price_at_sale(self):
+        self.as_owner()
         package = create_package("2.000", self.batch)
         self.sell(package, "40")
         package.refresh_from_db()
         self.assertEqual(package.sold_price, Decimal("40.00"))
+        self.assertEqual(package.sold_by, self.owner)
 
     def test_free_sale_is_allowed_but_not_negative_or_empty(self):
+        self.as_owner()
         package = create_package("2.000", self.batch)
         for raw in ("", "-1", "abc", "1234567,891"):
             with self.subTest(raw=raw):
@@ -578,7 +627,7 @@ class SaleTests(BaseCase):
         package = create_package("2.350", self.batch)
         names = [package.photo.name, package.thumb.name]
         with self.captureOnCommitCallbacks(execute=True):
-            self.sell(package, "58,75")
+            self.sell(package)
         self.assertTrue(all(package.photo.storage.exists(n) for n in names))
         response = self.client.get(reverse("inventory:image", args=[package.pk, "foto"]))
         self.assertEqual(response.status_code, 200)
@@ -587,7 +636,7 @@ class SaleTests(BaseCase):
     def test_after_selling_you_return_to_the_same_search(self):
         a, b = create_package("2.350", self.batch), create_package("2.350", self.batch)
         self.client.get(reverse("inventory:list"), {"peso": "2,35", "tolleranza": "0"})
-        response = self.sell(a, "58,75")
+        response = self.sell(a)
         self.assertIn("peso=2%2C35", response["Location"])
         followed = self.client.get(response["Location"])
         self.assertEqual([p.pk for p in followed.context["packages"]], [b.pk])
@@ -595,47 +644,57 @@ class SaleTests(BaseCase):
 
     def test_sold_package_is_excluded_from_stock_search_but_found_in_history(self):
         package = create_package("3.000", self.batch)
-        self.sell(package, "75")
+        self.sell(package)
         stock = self.client.get(reverse("inventory:list"), {"peso": "3", "tolleranza": "0"})
         self.assertEqual(len(stock.context["packages"]), 0)
         history = self.client.get(reverse("inventory:history"), {"peso": "3", "tolleranza": "0"})
         self.assertEqual([p.pk for p in history.context["packages"]], [package.pk])
 
-    def test_correcting_the_price_keeps_sale_date_and_seller(self):
+    def test_owner_corrects_price_and_receipt_keeping_sale_date_and_seller(self):
         package = create_package("2.000", self.batch)
-        self.sell(package, "50")
+        self.sell(package)
         package.refresh_from_db()
         sold_at = package.sold_at
-        other = get_user_model().objects.create_user("anna", password="una-password-lunga-123")
-        self.client.force_login(other)
+        self.as_owner()
 
-        response = self.sell(package, "45")
+        response = self.sell(package, "45", receipt=False)
         self.assertRedirects(response, reverse("inventory:detail", args=[package.pk]))
         package.refresh_from_db()
         self.assertEqual(package.sold_price, Decimal("45.00"))
+        self.assertFalse(package.receipt)
         self.assertEqual(package.sold_at, sold_at)
         self.assertEqual(package.sold_by, self.user)
 
-    def test_sold_price_is_not_touched_by_price_per_kg_changes(self):
+    def test_manager_cannot_correct_a_sale(self):
         package = create_package("2.000", self.batch)
-        self.sell(package, "50")
-        settings_row = ShopSettings.load()
-        settings_row.price_per_kg = Decimal("99.00")
-        settings_row.save()
+        self.sell(package)
+        self.assertEqual(self.client.get(reverse("inventory:sell", args=[package.pk])).status_code, 403)
+        self.assertEqual(self.sell(package, "1").status_code, 403)
         package.refresh_from_db()
         self.assertEqual(package.sold_price, Decimal("50.00"))
+
+    def test_sold_price_is_not_touched_by_price_changes(self):
+        package = create_package("2.000", self.batch)
+        self.sell(package)
+        shop = ShopSettings.load()
+        shop.price_per_kg = Decimal("99.00")
+        shop.save()
+        package.refresh_from_db()
+        self.assertEqual(package.sold_price, Decimal("50.00"))
+        self.as_owner()
         response = self.client.get(reverse("inventory:sell", args=[package.pk]))
         self.assertContains(response, 'value="50,00"')
 
     def test_restore_puts_the_package_back_in_stock(self):
         package = create_package("2.350", self.batch)
-        self.sell(package, "58,75")
+        self.sell(package, receipt=False)
         response = self.client.post(reverse("inventory:restore", args=[package.pk]))
         self.assertRedirects(response, reverse("inventory:detail", args=[package.pk]))
         package.refresh_from_db()
         self.assertIsNone(package.sold_at)
         self.assertIsNone(package.sold_price)
         self.assertIsNone(package.sold_by)
+        self.assertTrue(package.receipt)  # il «senza scontrino» non resta attaccato al pacco
         self.assertEqual(len(self.client.get(reverse("inventory:list")).context["packages"]), 1)
         self.assertEqual(len(self.client.get(reverse("inventory:history")).context["packages"]), 0)
 
@@ -668,7 +727,7 @@ class HistoryTests(BaseCase):
         self.assertNotContains(response, "50,00 €")
 
     def test_history_filters_by_lot(self):
-        a, b = Batch.objects.create(name="A"), Batch.objects.create(name="B")
+        a, b = make_batch(name="A"), make_batch(name="B")
         in_a = create_package("1.000", a, sold_price=25)
         create_package("1.000", b, sold_price=25)
         response = self.client.get(reverse("inventory:history"), {"batch": a.pk})
@@ -687,7 +746,7 @@ class HistoryTests(BaseCase):
 class UpdateTests(BaseCase):
     def setUp(self):
         super().setUp()
-        self.batch = Batch.objects.create(name="Lotto 1", expected_count=5)
+        self.batch = make_batch(name="Lotto 1", expected_count=5)
 
     def data(self, **overrides):
         data = {"weight_kg": "1,250", "batch": self.batch.pk, "notes": "corretto"}
@@ -721,13 +780,24 @@ class UpdateTests(BaseCase):
         response = self.client.get(reverse("inventory:update", args=[package.pk]))
         self.assertContains(response, 'value="2,350"')
 
-    def test_editing_a_sold_package_keeps_it_sold(self):
+    def test_editing_a_sold_package_keeps_it_sold_and_cannot_change_weight(self):
         package = create_package("2.000", self.batch, sold_price="50")
-        self.client.post(reverse("inventory:update", args=[package.pk]), self.data(weight_kg="2,100"))
+        response = self.client.get(reverse("inventory:update", args=[package.pk]))
+        self.assertNotIn("weight_kg", response.context["form"].fields)
+        self.assertNotIn("premium", response.context["form"].fields)
+        self.client.post(reverse("inventory:update", args=[package.pk]), self.data(weight_kg="9,000", premium="on"))
         package.refresh_from_db()
         self.assertTrue(package.is_sold)
         self.assertEqual(package.sold_price, Decimal("50.00"))
-        self.assertEqual(package.weight_kg, Decimal("2.100"))
+        self.assertEqual(package.weight_kg, Decimal("2.000"))
+        self.assertFalse(package.premium)
+        self.assertEqual(package.notes, "corretto")
+
+    def test_package_without_photo_can_get_one_later(self):
+        package = create_package("1.000", self.batch, photo=False)
+        self.client.post(reverse("inventory:update", args=[package.pk]), self.data(photo=make_image((300, 300))))
+        package.refresh_from_db()
+        self.assertTrue(package.has_photo)
 
 
 class DeleteTests(BaseCase):
@@ -796,7 +866,7 @@ class ImageViewTests(BaseCase):
 
 class DetailTests(BaseCase):
     def test_in_stock_detail_shows_price_and_sale_actions(self):
-        batch = Batch.objects.create(name="Lotto X", expected_count=3)
+        batch = make_batch(name="Lotto X", expected_count=3)
         package = create_package("2.350", batch, "scatola rossa")
         response = self.client.get(reverse("inventory:detail", args=[package.pk]))
         self.assertContains(response, "2,350")
@@ -828,9 +898,8 @@ class LoginThrottleTests(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        User = get_user_model()
-        cls.marco = User.objects.create_user("marco", password=cls.PASSWORD)
-        cls.anna = User.objects.create_user("anna", password=cls.PASSWORD)
+        cls.marco = make_user("marco", Profile.Role.MANAGER, "Milanofiori")
+        cls.anna = make_user("anna", Profile.Role.MANAGER, "Globo")
 
     def fail(self, username, times):
         for _ in range(times):
@@ -851,7 +920,7 @@ class LoginThrottleTests(TestCase):
     @override_settings(AXES_FAILURE_LIMIT=3)
     def test_other_users_are_not_affected(self):
         self.fail("marco", 3)
-        self.assertRedirects(self.login("anna"), reverse("inventory:list"), fetch_redirect_response=False)
+        self.assertRedirects(self.login("anna"), reverse("inventory:dashboard"), fetch_redirect_response=False)
 
     @override_settings(AXES_FAILURE_LIMIT=3)
     def test_below_the_limit_you_can_still_log_in_and_the_counter_resets(self):

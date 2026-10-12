@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Accesso non abilitato{% endblock %}
+
+{% block content %}
+<section class="login">
+  <h1>Accesso non abilitato</h1>
+  <p class="error" role="alert">Il tuo utente non ha ancora un ruolo nel gestionale.</p>
+  <p>Chiedi a un titolare di assegnarti il centro commerciale in cui lavori, poi riprova.</p>
+  <form method="post" action="{% url 'logout' %}">
+    {% csrf_token %}
+    <button class="btn btn-primary" type="submit">Esci</button>
+  </form>
+</section>
+{% endblock %}

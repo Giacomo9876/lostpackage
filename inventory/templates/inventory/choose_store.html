@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<ul class="stores">
+  {% for store in stores %}
+    <li>
+      <a class="store-card" href="{% querystring centro=store.pk %}">
+        <span class="store-head"><strong>{{ store.name }}</strong><span class="store-city">{{ store.city }}</span></span>
+      </a>
+    </li>
+  {% endfor %}
+</ul>
+{% endblock %}

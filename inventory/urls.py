@@ -5,7 +5,11 @@ from . import views
 app_name = "inventory"
 
 urlpatterns = [
-    path("", views.PackageListView.as_view(), name="list"),
+    path("", views.dashboard, name="dashboard"),
+    path("centro/<int:pk>/", views.store_dashboard, name="store"),
+    path("chiusura/", views.ClosingView.as_view(), name="closing"),
+    path("chiusura/<int:pk>/elimina/", views.closing_entry_delete, name="closing_delete"),
+    path("magazzino/", views.PackageListView.as_view(), name="list"),
     path("storico/", views.PackageListView.as_view(history=True), name="history"),
     path("nuovo/", views.PackageCreateView.as_view(), name="create"),
     path("lotti/", views.BatchListView.as_view(), name="batch_list"),

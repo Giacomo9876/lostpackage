@@ -1,0 +1,5 @@
+<nav class="chips" aria-label="Periodo">
+  {% for key, label in periods %}
+    <a class="chip" href="{% querystring periodo=key %}"{% if period.key == key %} aria-current="true"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>

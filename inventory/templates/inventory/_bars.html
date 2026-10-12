@@ -1,0 +1,14 @@
+{% if bars %}
+<section class="card" aria-labelledby="bars-title">
+  <h2 id="bars-title">Venduto per giorno</h2>
+  <div class="bars" role="img" aria-label="Grafico del venduto giorno per giorno">
+    {% for bar in bars %}
+      <div class="bar" title="{{ bar.day|date:'j F' }}: {{ bar.revenue|floatformat:2 }} €">
+        <span class="bar-col"><span class="bar-fill" style="--h: {{ bar.height }}%">{% if show_private and bar.no_receipt %}<span class="bar-yak" style="--s: {{ bar.no_receipt_share }}%"></span>{% endif %}</span></span>
+        <span class="bar-day">{% if forloop.first or forloop.last or forloop.counter|divisibleby:5 %}{{ bar.day|date:"j" }}{% endif %}</span>
+      </div>
+    {% endfor %}
+  </div>
+  {% if show_private %}<p class="hint"><span class="swatch swatch-yak"></span> Yakuza (senza scontrino)</p>{% endif %}
+</section>
+{% endif %}

@@ -22,11 +22,17 @@ MONEY_WIDGET_ATTRS = {"inputmode": "decimal", "placeholder": "0,00", "autocomple
 
 
 class PackageForm(forms.ModelForm):
+    """Registra o modifica un pacco di un centro. Foto e lotto sono facoltativi.
+
+    Su un pacco già venduto peso e premium non si toccano: il prezzo è già stato fissato
+    (per correggere il peso si rimette il pacco in magazzino).
+    """
+
     class Meta:
         model = Package
-        fields = ["photo", "weight_kg", "batch", "notes"]
+        fields = ["photo", "weight_kg", "premium", "batch", "notes"]
         localized_fields = ["weight_kg"]
-        labels = {"photo": "Foto del pacco", "batch": "Lotto"}
+        labels = {"photo": "Foto del pacco (facoltativa)", "batch": "Lotto (facoltativo)"}
         widgets = {
             # "capture" apre direttamente la fotocamera posteriore sul telefono.
             "photo": forms.FileInput(attrs={"accept": "image/*", "capture": "environment"}),
@@ -39,11 +45,14 @@ class PackageForm(forms.ModelForm):
         }
         help_texts = {"notes": "Facoltative."}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, store, **kwargs):
         super().__init__(*args, **kwargs)
-        # Ogni pacco appartiene a un lotto: il lotto si crea prima, poi si registrano i pacchi.
-        self.fields["batch"].required = True
-        self.fields["batch"].empty_label = "Scegli il lotto"
+        # Si può scegliere solo tra i lotti del centro del pacco.
+        self.fields["batch"].queryset = Batch.objects.filter(store=store)
+        self.fields["batch"].empty_label = "Nessun lotto"
+        if self.instance.is_sold:
+            del self.fields["weight_kg"]
+            del self.fields["premium"]
         self._images = None
         # Vanno ricordati qui: durante la validazione ModelForm sostituisce già
         # instance.photo con il nuovo file, e i vecchi nomi andrebbero persi.
@@ -93,12 +102,15 @@ class BatchForm(forms.ModelForm):
         widget=forms.NumberInput(attrs={"inputmode": "numeric", "placeholder": "Es. 10, oppure vuoto"}),
     )
 
+    def __init__(self, *args, store, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.store = store
+
     class Meta:
         model = Batch
         fields = ["name", "expected_count"]
         labels = {"name": "Nome del lotto"}
         widgets = {"name": forms.TextInput(attrs={"placeholder": "Es. Lotto 1", "autocomplete": "off"})}
-        error_messages = {"name": {"unique": "Esiste già un lotto con questo nome."}}
 
     def clean_expected_count(self):
         # Vuoto = "non lo so ancora": si salva 0, che l'app tratta come totale non indicato.
@@ -113,34 +125,94 @@ class BatchForm(forms.ModelForm):
 
     def clean_name(self):
         name = self.cleaned_data["name"].strip()
-        duplicates = Batch.objects.filter(name__iexact=name).exclude(pk=self.instance.pk)
+        # Il nome è unico dentro il centro: un altro centro può avere lo stesso «Lotto 1».
+        duplicates = Batch.objects.filter(store=self.store, name__iexact=name).exclude(pk=self.instance.pk)
         if duplicates.exists():
-            raise ValidationError("Esiste già un lotto con questo nome.")
+            raise ValidationError("In questo centro esiste già un lotto con questo nome.")
         return name
 
 
 class SaleForm(forms.ModelForm):
-    """Conferma della vendita: il prezzo è precompilato dal peso, ma si può cambiare."""
+    """Conferma della vendita dal magazzino.
+
+    Il prezzo lo calcolano le regole (peso, premium, pacco piccolo). Solo i titolari possono
+    cambiarlo; per lo store manager il campo non esiste.
+    """
 
     class Meta:
         model = Package
-        fields = ["sold_price"]
-        labels = {"sold_price": "Prezzo di vendita"}
+        fields = ["sold_price", "receipt"]
+        labels = {"sold_price": "Prezzo di vendita", "receipt": "Scontrino emesso"}
         localized_fields = ["sold_price"]
         widgets = {"sold_price": forms.TextInput(attrs=MONEY_WIDGET_ATTRS)}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, can_set_price, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["sold_price"].required = True
+        if can_set_price:
+            self.fields["sold_price"].required = True
+        else:
+            del self.fields["sold_price"]
+
+
+class ClosingEntryForm(forms.Form):
+    """Un pacco venduto, inserito a fine giornata: peso, premium e scontrino."""
+
+    weight_kg = forms.DecimalField(
+        label="Peso",
+        min_value=Decimal("0.001"),
+        max_value=Decimal("1000"),
+        max_digits=7,
+        decimal_places=3,
+        localize=True,
+        widget=forms.TextInput(attrs={"inputmode": "decimal", "placeholder": "0,000", "autocomplete": "off"}),
+    )
+    premium = forms.BooleanField(label="Pacco premium", required=False)
+    receipt = forms.BooleanField(label="Scontrino emesso", required=False, initial=True)
+
+
+class CloseForm(forms.Form):
+    """Totale degli scontrini battuti in cassa nella giornata."""
+
+    receipts_total = forms.DecimalField(
+        label="Totale scontrini battuti in cassa",
+        min_value=Decimal("0"),
+        max_value=Decimal("9999999.99"),
+        max_digits=10,
+        decimal_places=2,
+        localize=True,
+        widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
+    )
 
 
 class PriceForm(forms.ModelForm):
     class Meta:
         model = ShopSettings
-        fields = ["price_per_kg"]
-        labels = {"price_per_kg": "Prezzo al kg"}
-        localized_fields = ["price_per_kg"]
-        widgets = {"price_per_kg": forms.TextInput(attrs=MONEY_WIDGET_ATTRS)}
+        fields = ["price_per_kg", "premium_price_per_kg", "small_parcel_max_g", "small_parcel_price"]
+        labels = {
+            "price_per_kg": "Prezzo al kg",
+            "premium_price_per_kg": "Prezzo al kg dei pacchi premium",
+            "small_parcel_max_g": "Pacchi piccoli: fino a (grammi)",
+            "small_parcel_price": "Pacchi piccoli: prezzo fisso",
+        }
+        help_texts = {
+            "small_parcel_max_g": "Fino a questo peso ogni pacco costa il prezzo fisso, premium compresi.",
+        }
+        localized_fields = ["price_per_kg", "premium_price_per_kg", "small_parcel_price"]
+        widgets = {
+            "price_per_kg": forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
+            "premium_price_per_kg": forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
+            "small_parcel_price": forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
+            "small_parcel_max_g": forms.NumberInput(attrs={"inputmode": "numeric", "autocomplete": "off"}),
+        }
+
+
+class BatchChoiceField(forms.ModelChoiceField):
+    """Per i titolari il lotto si riconosce dal centro: «Lotto 1 · Globo»."""
+
+    show_store = False
+
+    def label_from_instance(self, obj):
+        return f"{obj.name} · {obj.store.name}" if self.show_store else obj.name
 
 
 class SearchForm(forms.Form):
@@ -161,9 +233,15 @@ class SearchForm(forms.Form):
         empty_value=DEFAULT_TOLERANCE_G,
         initial=DEFAULT_TOLERANCE_G,
     )
-    batch = forms.ModelChoiceField(
-        label="Lotto",
-        required=False,
-        queryset=Batch.objects.all(),
-        empty_label="Tutti i lotti",
-    )
+    batch = BatchChoiceField(label="Lotto", required=False, queryset=Batch.objects.none(), empty_label="Tutti i lotti")
+
+    def __init__(self, *args, scope, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["batch"].queryset = scope.batches().select_related("store")
+        self.fields["batch"].show_store = scope.is_owner
+        if scope.is_owner:
+            # Solo i titolari vedono più centri, quindi solo loro possono filtrare per centro.
+            self.fields["centro"] = forms.ModelChoiceField(
+                label="Centro", required=False, queryset=scope.stores(), empty_label="Tutti i centri"
+            )
+            self.order_fields(["peso", "tolleranza", "centro", "batch"])

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}{{ store.name }}{% endblock %}
+
+{% block content %}
+{% if scope.is_owner %}<a class="back" href="{% url 'inventory:dashboard' %}">Tutti i centri</a>{% endif %}
+<h1>{{ store.name }} <small class="h1-sub">{{ store.city }}</small></h1>
+
+<section class="today card" aria-label="Oggi">
+  <p class="today-line">
+    <strong>Oggi:</strong> {{ today_count }} pacc{{ today_count|pluralize:"o,hi" }} inseriti.
+    {% if today_close %}
+      Giornata <strong>chiusa</strong>, scontrini battuti {{ today_close.receipts_total|floatformat:2 }} €.
+    {% else %}
+      Giornata <strong>non ancora chiusa</strong>.
+    {% endif %}
+  </p>
+  <a class="btn btn-primary" href="{% url 'inventory:closing' %}{{ centro_param }}">{% if today_close %}Rivedi la chiusura di oggi{% else %}Inserisci i pacchi e chiudi la giornata{% endif %}</a>
+</section>
+
+{% include "inventory/_period.html" %}
+
+<section class="stats" aria-label="Riepilogo {{ period.label|lower }}">
+  <div class="stat">
+    <span class="stat-label">Venduto</span>
+    <span class="stat-value">{{ totals.revenue|floatformat:2 }} €</span>
+    <span class="stat-sub">{{ totals.count }} pacc{{ totals.count|pluralize:"o,hi" }} · {{ totals.weight|floatformat:1 }} kg</span>
+  </div>
+  {% if show_private %}
+  <div class="stat stat-dark">
+    <span class="stat-label">Yakuza · senza scontrino</span>
+    <span class="stat-value">{{ totals.no_receipt|floatformat:2 }} €</span>
+    <span class="stat-sub">{{ totals.no_receipt_pct }}% del venduto · {{ totals.no_receipt_count }} pacc{{ totals.no_receipt_count|pluralize:"o,hi" }}</span>
+  </div>
+  <div class="stat{% if totals.difference != 0 %} stat-warn{% endif %}">
+    <span class="stat-label">Scontrini battuti in cassa</span>
+    <span class="stat-value">{{ totals.declared|floatformat:2 }} €</span>
+    <span class="stat-sub">
+      {% if totals.closed_days %}differenza {% include "inventory/_signed.html" with value=totals.difference %}{% else %}nessuna giornata chiusa{% endif %}
+    </span>
+  </div>
+  {% endif %}
+  <div class="stat">
+    <span class="stat-label">In magazzino</span>
+    <span class="stat-value">{{ stock.count }}</span>
+    <span class="stat-sub">pacchi · valore {{ stock.value|floatformat:2 }} €</span>
+  </div>
+</section>
+
+{% if show_private and totals.missing_closes %}
+  <p class="notice notice-warn" role="status">
+    {{ totals.missing_closes }} giornat{{ totals.missing_closes|pluralize:"a,e" }} con vendite ma senza chiusura nel periodo.
+  </p>
+{% endif %}
+
+{% include "inventory/_bars.html" %}
+
+<h2>Giornate</h2>
+{% if days %}
+  <ul class="days">
+    {% for item in days %}
+      <li class="day">
+        <span class="day-date">{{ item.day|date:"D j F"|lower }}</span>
+        <span class="day-money">{{ item.revenue|floatformat:2 }} €</span>
+        <span class="day-meta">
+          {{ item.count }} pacc{{ item.count|pluralize:"o,hi" }}
+          {% if show_private and item.no_receipt %}· <b>Yakuza</b> {{ item.no_receipt|floatformat:2 }} €{% endif %}
+        </span>
+        <span class="day-meta{% if show_private and item.closed and item.difference != 0 %} is-warn{% endif %}">
+          {% if item.closed %}
+            Chiusa{% if show_private %} · scontrini {{ item.declared|floatformat:2 }} € · differenza {% include "inventory/_signed.html" with value=item.difference %}{% endif %}
+          {% elif item.day == today %}In corso{% else %}Non chiusa{% endif %}
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="empty"><p><strong>Nessuna vendita</strong> nel periodo scelto.</p></div>
+{% endif %}
+{% endblock %}

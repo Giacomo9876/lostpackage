@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Chiusura di giornata{% endblock %}
+
+{% block content %}
+<h1>Chiusura di giornata</h1>
+<p class="sub">
+  <strong>{{ store.label }}</strong>
+  {% if scope.is_owner %}· <a href="{% url 'inventory:closing' %}">cambia centro</a>{% endif %}
+</p>
+
+<nav class="chips" aria-label="Giornata">
+  <a class="chip" href="{% querystring data=None %}"{% if is_today %} aria-current="true"{% endif %}>Oggi</a>
+  <a class="chip" href="{% querystring data=yesterday.isoformat %}"{% if day == yesterday %} aria-current="true"{% endif %}>Ieri</a>
+</nav>
+<p class="summary">{{ day|date:"l j F Y"|lower }}</p>
+
+<form method="post" class="stack card" data-submit-once data-closing-entry
+      data-small-max-g="{{ rules.small_max_g }}" data-small-cents="{{ rules.small_cents }}"
+      data-rate-cents="{{ rules.rate_cents }}" data-premium-cents="{{ rules.premium_cents }}">
+  {% csrf_token %}
+  <input type="hidden" name="azione" value="pacco">
+  <h2>Pacco venduto</h2>
+  {% for error in entry_form.non_field_errors %}<p class="error" role="alert">{{ error }}</p>{% endfor %}
+  <div class="field{% if entry_form.weight_kg.errors %} has-error{% endif %}">
+    <label for="{{ entry_form.weight_kg.id_for_label }}">Peso</label>
+    <div class="readout-input">{{ entry_form.weight_kg }}<span>kg</span></div>
+    {% for error in entry_form.weight_kg.errors %}<p class="error">{{ error }}</p>{% endfor %}
+  </div>
+  <div class="checks">
+    <label class="check">{{ entry_form.premium }} <span>Pacco premium</span></label>
+    <label class="check">{{ entry_form.receipt }} <span>Scontrino emesso</span></label>
+  </div>
+  <p class="price-preview" aria-live="polite">Prezzo: <strong data-price-preview>—</strong></p>
+  <button class="btn btn-primary" type="submit">Aggiungi pacco</button>
+</form>
+
+<h2>Pacchi {% if is_today %}di oggi{% else %}del {{ day|date:"j F" }}{% endif %} <span class="count-pill">{{ count }}</span></h2>
+{% if entries %}
+  <ul class="entries">
+    {% for entry in entries %}
+      <li class="entry">
+        <a class="entry-main" href="{% url 'inventory:detail' entry.pk %}">
+          <span class="weight">{{ entry.weight_kg|floatformat:3 }}<small>kg</small></span>
+          <span class="entry-tags">
+            {% if entry.premium %}<span class="tag tag-exact">Premium</span>{% endif %}
+            {% if not entry.receipt %}<span class="tag tag-warn">No scontrino</span>{% endif %}
+          </span>
+          <span class="price">{{ entry.sold_price|floatformat:2 }} €</span>
+        </a>
+        {% if entry.deletable %}
+          <form method="post" action="{% url 'inventory:closing_delete' entry.pk %}" data-confirm="Eliminare il pacco da {{ entry.weight_kg|floatformat:3 }} kg?">
+            {% csrf_token %}
+            <button class="icon-btn" type="submit" aria-label="Elimina il pacco #{{ entry.pk }}">✕</button>
+          </form>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+  <p class="totals">
+    <strong>{{ count }} pacc{{ count|pluralize:"o,hi" }} · {{ revenue|floatformat:2 }} €</strong>
+    {% if show_private and no_receipt_count %}<br>di cui senza scontrino (Yakuza): {{ no_receipt|floatformat:2 }} € ({{ no_receipt_count }})
+    {% endif %}
+  </p>
+{% else %}
+  <div class="empty"><p>Nessun pacco inserito {% if is_today %}oggi{% else %}in questa giornata{% endif %}.</p></div>
+{% endif %}
+
+<form method="post" class="stack card" data-submit-once>
+  {% csrf_token %}
+  <input type="hidden" name="azione" value="chiusura">
+  <h2>Cassa</h2>
+  <div class="field{% if close_form.receipts_total.errors %} has-error{% endif %}">
+    <label for="{{ close_form.receipts_total.id_for_label }}">{{ close_form.receipts_total.label }}</label>
+    <div class="readout-input">{{ close_form.receipts_total }}<span>€</span></div>
+    {% for error in close_form.receipts_total.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    <p class="hint">Il totale degli scontrini della giornata, come lo dà il registratore di cassa.</p>
+  </div>
+  {% if close %}
+    <p class="hint">Giornata chiusa{% if close.closed_by %} da {{ close.closed_by.get_username }}{% endif %} il {{ close.updated_at|date:"j F, H:i"|lower }}. Puoi correggere il totale.</p>
+  {% endif %}
+  <button class="btn btn-primary" type="submit">{% if close %}Aggiorna la chiusura{% else %}Chiudi la giornata{% endif %}</button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+{% load static %}
+<script src="{% static 'js/closing.js' %}" defer></script>
+{% endblock %}

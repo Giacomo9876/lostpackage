@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Non consentito{% endblock %}
+
+{% block content %}
+<section class="empty">
+  <h1>Non consentito</h1>
+  <p>Questa operazione non è disponibile per il tuo utente.</p>
+  <a class="btn btn-primary" href="{% url 'inventory:dashboard' %}">Torna alla home</a>
+</section>
+{% endblock %}

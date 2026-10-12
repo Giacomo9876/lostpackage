@@ -3,6 +3,7 @@
 
 {% block content %}
 <h1>{% if object %}Modifica «{{ object.name }}»{% else %}Nuovo lotto{% endif %}</h1>
+<p class="sub"><strong>{{ store.label }}</strong></p>
 
 <form method="post" class="stack">
   {% csrf_token %}
@@ -13,7 +14,7 @@
     {% if object %}
       <button class="btn btn-primary" type="submit">Salva</button>
       {% if from_register %}
-        <a class="btn btn-quiet" href="{% url 'inventory:create' %}?lotto={{ object.pk }}">Annulla</a>
+        <a class="btn btn-quiet" href="{% url 'inventory:create' %}?lotto={{ object.pk }}&amp;centro={{ object.store_id }}">Annulla</a>
       {% else %}
         <a class="btn btn-quiet" href="{% url 'inventory:batch_list' %}">Annulla</a>
       {% endif %}

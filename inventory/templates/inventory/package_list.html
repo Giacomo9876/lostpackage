@@ -2,7 +2,12 @@
 {% block title %}{% if history %}Storico{% else %}Magazzino{% endif %}{% endblock %}
 
 {% block content %}
-{% if history %}<h1>Storico vendite</h1>{% endif %}
+{% if history %}<h1>Storico vendite</h1>{% else %}
+<div class="actions lots-head">
+  <a class="btn btn-primary" href="{% url 'inventory:create' %}">Registra un pacco</a>
+  <a class="btn btn-secondary" href="{% url 'inventory:batch_list' %}">Lotti</a>
+</div>
+{% endif %}
 
 <form class="finder stack" method="get" action="{% if history %}{% url 'inventory:history' %}{% else %}{% url 'inventory:list' %}{% endif %}" role="search">
   <div class="field{% if form.peso.errors %} has-error{% endif %}">
@@ -12,6 +17,7 @@
   </div>
   <div class="split">
     {% include "inventory/_field.html" with field=form.tolleranza %}
+    {% if form.centro %}{% include "inventory/_field.html" with field=form.centro %}{% endif %}
     {% include "inventory/_field.html" with field=form.batch %}
   </div>
   <div class="actions">
@@ -29,15 +35,18 @@
     {{ total_count }} pacc{{ total_count|pluralize:"o,hi" }} vendut{{ total_count|pluralize:"o,i" }},
     {{ total_weight|floatformat:3 }} kg, incasso {{ revenue|floatformat:2 }} €
   {% else %}
-    {{ total_count }} pacc{{ total_count|pluralize:"o,hi" }}{% if filtered %} nel lotto scelto{% else %} in magazzino{% endif %},
+    {{ total_count }} pacc{{ total_count|pluralize:"o,hi" }}{% if filtered %} trovati{% else %} in magazzino{% endif %},
     {{ total_weight|floatformat:3 }} kg, valore {{ stock_value|floatformat:2 }} €
   {% endif %}
 </p>
 
 {% if not history %}
   <p class="pricebar">
-    <span>Prezzo attuale: <strong>{{ price_per_kg|floatformat:2 }} € al kg</strong></span>
-    <a href="{% url 'inventory:price' %}">Cambia prezzo</a>
+    <span>
+      <strong>{{ shop.price_per_kg|floatformat:2 }} € al kg</strong>, premium {{ shop.premium_price_per_kg|floatformat:2 }} €;
+      fino a {{ shop.small_parcel_max_g }} g: {{ shop.small_parcel_price|floatformat:2 }} €
+    </span>
+    {% if scope.is_owner %}<a href="{% url 'inventory:price' %}">Cambia prezzi</a>{% endif %}
   </p>
 {% endif %}
 
@@ -46,12 +55,20 @@
     {% for package in packages %}
       <li>
         <a class="parcel{% if searching and package.delta_g == 0 %} is-exact{% endif %}" href="{% url 'inventory:detail' package.pk %}">
-          <img src="{% url 'inventory:image' package.pk 'miniatura' %}?v={{ package.updated_at|date:'U' }}"
-               alt="Foto del pacco #{{ package.pk }}" width="96" height="96" loading="lazy">
+          {% if package.has_photo %}
+            <img src="{% url 'inventory:image' package.pk 'miniatura' %}?v={{ package.updated_at|date:'U' }}"
+                 alt="Foto del pacco #{{ package.pk }}" width="96" height="96" loading="lazy">
+          {% else %}
+            <span class="noimg" role="img" aria-label="Nessuna foto">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9"/></svg>
+            </span>
+          {% endif %}
           <span class="parcel-body">
             <span class="weight">{{ package.weight_kg|floatformat:3 }}<small>kg</small></span>
             <span class="parcel-meta">
               <span class="tag">#{{ package.pk }}</span>
+              {% if package.premium %}<span class="tag tag-exact">Premium</span>{% endif %}
+              {% if history and not package.receipt %}<span class="tag tag-warn">Senza scontrino</span>{% endif %}
               {% if history %}
                 <span class="price">{{ package.sold_price|floatformat:2 }} €</span>
               {% else %}
@@ -65,7 +82,8 @@
                 {% endif %}
               {% endif %}
             </span>
-            {% if package.batch %}<span class="batch-name">{{ package.batch.name }}</span>{% endif %}
+            {% if scope.is_owner %}<span class="batch-name">{{ package.store.name }}{% if package.batch %} · {{ package.batch.name }}{% endif %}</span>
+            {% elif package.batch %}<span class="batch-name">{{ package.batch.name }}</span>{% endif %}
             {% if history %}
               <span class="note">Venduto il {{ package.sold_at|date:"j F Y"|lower }}</span>
             {% elif package.notes %}
@@ -95,8 +113,8 @@
     {% elif history %}
       <p><strong>Ancora nessuna vendita.</strong> I pacchi venduti compaiono qui, con il prezzo a cui li hai venduti.</p>
     {% else %}
-      <p><strong>Il magazzino è vuoto.</strong> Crea un lotto, poi pesa i pacchi e registrali uno a uno con la foto.</p>
-      <a class="btn btn-primary" href="{% url 'inventory:batch_create' %}">Crea un lotto</a>
+      <p><strong>Il magazzino è vuoto.</strong> Qui compaiono i pacchi registrati e non ancora venduti. Se vuoi solo registrare le vendite di fine giornata, usa la Chiusura.</p>
+      <a class="btn btn-primary" href="{% url 'inventory:create' %}">Registra un pacco</a>
     {% endif %}
   </div>
 {% endif %}

@@ -13,7 +13,7 @@
     {% for batch in batches %}
       <li class="lot">
         <div class="lot-head">
-          <strong>{{ batch.name }}</strong>
+          <strong>{{ batch.name }}{% if scope.is_owner %} <span class="store-city">· {{ batch.store.name }}</span>{% endif %}</strong>
           <a href="{% url 'inventory:batch_update' batch.pk %}">Modifica</a>
         </div>
         {% if batch.expected_count %}
@@ -28,9 +28,9 @@
         <p class="lot-stats">{{ batch.in_stock }} in magazzino, {{ batch.sold }} vendut{{ batch.sold|pluralize:"o,i" }}</p>
         <div class="actions">
           {% if batch.expected_count and batch.registered >= batch.expected_count %}
-            <a class="btn btn-secondary" href="{% url 'inventory:create' %}?lotto={{ batch.pk }}">Aggiungi un pacco</a>
+            <a class="btn btn-secondary" href="{% url 'inventory:create' %}?lotto={{ batch.pk }}&amp;centro={{ batch.store_id }}">Aggiungi un pacco</a>
           {% else %}
-            <a class="btn btn-primary" href="{% url 'inventory:create' %}?lotto={{ batch.pk }}">Registra pacchi</a>
+            <a class="btn btn-primary" href="{% url 'inventory:create' %}?lotto={{ batch.pk }}&amp;centro={{ batch.store_id }}">Registra pacchi</a>
           {% endif %}
           <a class="btn btn-secondary" href="{% url 'inventory:list' %}?batch={{ batch.pk }}">Vedi in magazzino</a>
         </div>
@@ -39,7 +39,7 @@
   </ul>
 {% else %}
   <div class="empty">
-    <p><strong>Nessun lotto.</strong> Un lotto è un gruppo di pacchi arrivati insieme: indica quanti sono (anche dopo, se non lo sai ancora), poi registrali uno a uno con la foto.</p>
+    <p><strong>Nessun lotto.</strong> I lotti sono facoltativi: servono se vuoi seguire un gruppo di pacchi arrivati insieme. Indica quanti sono (anche dopo, se non lo sai ancora) e registrali.</p>
     <a class="btn btn-primary" href="{% url 'inventory:batch_create' %}">Crea il primo lotto</a>
   </div>
 {% endif %}
