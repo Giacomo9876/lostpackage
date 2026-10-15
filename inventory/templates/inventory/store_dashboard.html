@@ -9,7 +9,7 @@
   <p class="today-line">
     <strong>Oggi:</strong> {{ today_count }} pacc{{ today_count|pluralize:"o,hi" }} inseriti.
     {% if today_close %}
-      Giornata <strong>chiusa</strong>, scontrini battuti {{ today_close.receipts_total|floatformat:2 }} €.
+      Giornata <strong>chiusa</strong>, scontrini battuti {{ today_close.receipts_total|floatformat:"2g" }} €.
     {% else %}
       Giornata <strong>non ancora chiusa</strong>.
     {% endif %}
@@ -22,18 +22,20 @@
 <section class="stats" aria-label="Riepilogo {{ period.label|lower }}">
   <div class="stat">
     <span class="stat-label">Venduto</span>
-    <span class="stat-value">{{ totals.revenue|floatformat:2 }} €</span>
+    <span class="stat-value">{{ totals.revenue|floatformat:"2g" }} €</span>
     <span class="stat-sub">{{ totals.count }} pacc{{ totals.count|pluralize:"o,hi" }} · {{ totals.weight|floatformat:1 }} kg</span>
+    {% if compare_label and revenue_change is not None %}<span class="stat-sub">{% include "inventory/_delta.html" with pct=revenue_change %} {{ compare_label }}</span>{% endif %}
+    {% if show_private and totals.discount %}<span class="stat-sub">Sconti: {{ totals.discount|floatformat:"2g" }} € su {{ totals.discount_count }} pacc{{ totals.discount_count|pluralize:"o,hi" }}</span>{% endif %}
   </div>
   {% if show_private %}
   <div class="stat stat-dark">
-    <span class="stat-label">Yakuza · senza scontrino</span>
-    <span class="stat-value">{{ totals.no_receipt|floatformat:2 }} €</span>
-    <span class="stat-sub">{{ totals.no_receipt_pct }}% del venduto · {{ totals.no_receipt_count }} pacc{{ totals.no_receipt_count|pluralize:"o,hi" }}</span>
+    <span class="stat-label">Yakuza</span>
+    <span class="stat-value">{{ totals.yakuza|floatformat:"2g" }} €</span>
+    <span class="stat-sub">{{ totals.yakuza_pct }}% del venduto · {{ totals.yakuza_count }} pacc{{ totals.yakuza_count|pluralize:"o,hi" }}</span>
   </div>
   <div class="stat{% if totals.difference != 0 %} stat-warn{% endif %}">
     <span class="stat-label">Scontrini battuti in cassa</span>
-    <span class="stat-value">{{ totals.declared|floatformat:2 }} €</span>
+    <span class="stat-value">{{ totals.declared|floatformat:"2g" }} €</span>
     <span class="stat-sub">
       {% if totals.closed_days %}differenza {% include "inventory/_signed.html" with value=totals.difference %}{% else %}nessuna giornata chiusa{% endif %}
     </span>
@@ -42,7 +44,7 @@
   <div class="stat">
     <span class="stat-label">In magazzino</span>
     <span class="stat-value">{{ stock.count }}</span>
-    <span class="stat-sub">pacchi · valore {{ stock.value|floatformat:2 }} €</span>
+    <span class="stat-sub">pacchi · valore {{ stock.value|floatformat:"2g" }} €</span>
   </div>
 </section>
 
@@ -54,20 +56,23 @@
 
 {% include "inventory/_bars.html" %}
 
+{% include "inventory/_insights.html" %}
+
 <h2>Giornate</h2>
 {% if days %}
   <ul class="days">
     {% for item in days %}
       <li class="day">
         <span class="day-date">{{ item.day|date:"D j F"|lower }}</span>
-        <span class="day-money">{{ item.revenue|floatformat:2 }} €</span>
+        <span class="day-money">{{ item.revenue|floatformat:"2g" }} €</span>
         <span class="day-meta">
           {{ item.count }} pacc{{ item.count|pluralize:"o,hi" }}
-          {% if show_private and item.no_receipt %}· <b>Yakuza</b> {{ item.no_receipt|floatformat:2 }} €{% endif %}
+          {% if show_private and item.yakuza %}· <b>Yakuza</b> {{ item.yakuza|floatformat:"2g" }} €{% endif %}
+          {% if show_private and item.discount %}· sconti {{ item.discount|floatformat:"2g" }} €{% endif %}
         </span>
         <span class="day-meta{% if show_private and item.closed and item.difference != 0 %} is-warn{% endif %}">
           {% if item.closed %}
-            Chiusa{% if show_private %} · scontrini {{ item.declared|floatformat:2 }} € · differenza {% include "inventory/_signed.html" with value=item.difference %}{% endif %}
+            Chiusa{% if show_private %} · scontrini {{ item.declared|floatformat:"2g" }} € · differenza {% include "inventory/_signed.html" with value=item.difference %}{% endif %}
           {% elif item.day == today %}In corso{% else %}Non chiusa{% endif %}
         </span>
       </li>

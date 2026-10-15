@@ -23,8 +23,16 @@
 <dl class="facts">
   {% if object.is_sold %}
     <div><dt>Stato</dt><dd><span class="tag tag-sold">Venduto</span></dd></div>
-    <div><dt>Prezzo</dt><dd><strong>{{ object.sold_price|floatformat:2 }} €</strong></dd></div>
-    <div><dt>Scontrino</dt><dd>{% if object.receipt %}Emesso{% else %}<span class="tag tag-warn">Non emesso</span>{% endif %}</dd></div>
+    <div>
+      <dt>Prezzo</dt>
+      <dd>
+        <strong>{{ object.sold_price|floatformat:2 }} €</strong>
+        {% if object.price_adjustment %}
+          <span class="hint-inline">(listino {{ object.list_price|floatformat:2 }} €, {% if object.price_adjustment < 0 %}sconto {{ object.price_adjustment|cut:"-"|floatformat:2 }} €{% else %}maggiorato di {{ object.price_adjustment|floatformat:2 }} €{% endif %})</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div><dt>Pagamento</dt><dd>{% if object.is_yakuza %}<span class="tag tag-warn">Yakuza</span>{% else %}{{ object.get_payment_display }}{% endif %}</dd></div>
     <div>
       <dt>Venduto il</dt>
       <dd>{{ object.sold_at|date:"j F Y, H:i"|lower }}{% if object.sold_by %} da {{ object.sold_by.get_username }}{% endif %}</dd>
@@ -50,7 +58,7 @@
 {% if object.is_sold %}
   {% if can_edit or can_fix_price %}
     <div class="actions">
-      {% if can_fix_price %}<a class="btn btn-secondary" href="{% url 'inventory:sell' object.pk %}">Correggi prezzo e scontrino</a>{% endif %}
+      {% if can_fix_price %}<a class="btn btn-secondary" href="{% url 'inventory:sell' object.pk %}">Correggi prezzo e pagamento</a>{% endif %}
       {% if can_edit %}
         <form method="post" action="{% url 'inventory:restore' object.pk %}">
           {% csrf_token %}

@@ -9,22 +9,24 @@
 <section class="stats" aria-label="Riepilogo {{ period.label|lower }}">
   <div class="stat">
     <span class="stat-label">Venduto</span>
-    <span class="stat-value">{{ total.revenue|floatformat:2 }} €</span>
+    <span class="stat-value">{{ total.revenue|floatformat:"2g" }} €</span>
     <span class="stat-sub">{{ total.count }} pacc{{ total.count|pluralize:"o,hi" }} · {{ total.weight|floatformat:1 }} kg</span>
+    {% if compare_label and revenue_change is not None %}<span class="stat-sub">{% include "inventory/_delta.html" with pct=revenue_change %} {{ compare_label }}</span>{% endif %}
+    {% if total.discount %}<span class="stat-sub">Sconti: {{ total.discount|floatformat:"2g" }} € su {{ total.discount_count }} pacc{{ total.discount_count|pluralize:"o,hi" }}</span>{% endif %}
   </div>
   <div class="stat stat-dark">
-    <span class="stat-label">Yakuza · senza scontrino</span>
-    <span class="stat-value">{{ total.no_receipt|floatformat:2 }} €</span>
-    <span class="stat-sub">{{ total.no_receipt_pct }}% del venduto · {{ total.no_receipt_count }} pacc{{ total.no_receipt_count|pluralize:"o,hi" }}</span>
+    <span class="stat-label">Yakuza</span>
+    <span class="stat-value">{{ total.yakuza|floatformat:"2g" }} €</span>
+    <span class="stat-sub">{{ total.yakuza_pct }}% del venduto · {{ total.yakuza_count }} pacc{{ total.yakuza_count|pluralize:"o,hi" }}</span>
   </div>
   <div class="stat">
     <span class="stat-label">Con scontrino</span>
-    <span class="stat-value">{{ total.with_receipt|floatformat:2 }} €</span>
+    <span class="stat-value">{{ total.with_receipt|floatformat:"2g" }} €</span>
     <span class="stat-sub">{{ total.with_receipt_count }} pacc{{ total.with_receipt_count|pluralize:"o,hi" }}</span>
   </div>
   <div class="stat{% if total.difference != 0 %} stat-warn{% endif %}">
     <span class="stat-label">Scontrini battuti in cassa</span>
-    <span class="stat-value">{{ total.declared|floatformat:2 }} €</span>
+    <span class="stat-value">{{ total.declared|floatformat:"2g" }} €</span>
     <span class="stat-sub">
       {% if total.closed_days %}
         differenza {% include "inventory/_signed.html" with value=total.difference %} su {{ total.closed_days }} giornat{{ total.closed_days|pluralize:"a chiusa,e chiuse" }}
@@ -41,6 +43,8 @@
 
 {% include "inventory/_bars.html" %}
 
+{% include "inventory/_insights.html" with totals=total %}
+
 <h2>Centri</h2>
 <ul class="stores">
   {% for card in cards %}
@@ -50,13 +54,15 @@
           <strong>{{ card.store.name }}</strong>
           <span class="store-city">{{ card.store.city }}</span>
         </span>
-        <span class="store-money">{{ card.totals.revenue|floatformat:2 }} €</span>
+        <span class="store-money">{{ card.totals.revenue|floatformat:"2g" }} €</span>
         <span class="store-line">{{ card.totals.count }} pacc{{ card.totals.count|pluralize:"o,hi" }} venduti</span>
-        <span class="store-line"><b>Yakuza</b> {{ card.totals.no_receipt|floatformat:2 }} € ({{ card.totals.no_receipt_pct }}%)</span>
+        {% if card.change is not None %}<span class="store-line">{% include "inventory/_delta.html" with pct=card.change %} sul periodo precedente</span>{% endif %}
+        <span class="store-line"><b>Yakuza</b> {{ card.totals.yakuza|floatformat:"2g" }} € ({{ card.totals.yakuza_pct }}%)</span>
+        {% if card.totals.discount %}<span class="store-line">Sconti {{ card.totals.discount|floatformat:"2g" }} € ({{ card.totals.discount_count }})</span>{% endif %}
         <span class="store-line{% if card.totals.difference != 0 %} is-warn{% endif %}">
           Differenza scontrini {% include "inventory/_signed.html" with value=card.totals.difference %}
         </span>
-        <span class="store-line">In magazzino: {{ card.stock.count }} pacc{{ card.stock.count|pluralize:"o,hi" }}, {{ card.stock.value|floatformat:2 }} €</span>
+        <span class="store-line">In magazzino: {{ card.stock.count }} pacc{{ card.stock.count|pluralize:"o,hi" }}, {{ card.stock.value|floatformat:"2g" }} €</span>
         <span class="store-tags">
           {% if card.closed_today %}<span class="tag tag-exact">Oggi chiuso</span>{% else %}<span class="tag">Oggi non ancora chiuso</span>{% endif %}
           {% if card.totals.missing_closes %}<span class="tag tag-warn">{{ card.totals.missing_closes }} chiusur{{ card.totals.missing_closes|pluralize:"a,e" }} mancant{{ card.totals.missing_closes|pluralize:"e,i" }}</span>{% endif %}
@@ -66,5 +72,5 @@
   {% endfor %}
 </ul>
 
-<p class="fine-print">In magazzino in tutto: {{ stock_total.count }} pacchi, valore {{ stock_total.value|floatformat:2 }} €.</p>
+<p class="fine-print">In magazzino in tutto: {{ stock_total.count }} pacchi, valore {{ stock_total.value|floatformat:"2g" }} €.</p>
 {% endblock %}

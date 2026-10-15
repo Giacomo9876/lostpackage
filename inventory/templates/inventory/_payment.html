@@ -1,0 +1,13 @@
+<fieldset class="pay-options{% if field.errors %} has-error{% endif %}">
+  <legend>Pagamento</legend>
+  <div class="pay-grid">
+    {% for radio in field %}
+      <label class="pay pay-{{ radio.data.value }}">
+        {{ radio.tag }}
+        <span class="pay-name">{{ radio.choice_label }}</span>
+        {% if radio.data.value != "yakuza" %}<span class="pay-sub">con scontrino</span>{% endif %}
+      </label>
+    {% endfor %}
+  </div>
+  {% for error in field.errors %}<p class="error">{{ error }}</p>{% endfor %}
+</fieldset>

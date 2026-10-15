@@ -91,6 +91,12 @@ def _dashboard_common(request, period):
     packages = scope.packages()
     rows = stats.daily_rows(stats.sold_in(packages, period))
     closes = list(stats.closes_in(scope.closes(), period))
+    # Il periodo di confronto (i giorni subito prima) serve per le variazioni in percentuale.
+    comparison = stats.compare_with(period)
+    before = {}
+    if comparison:
+        before_rows = stats.daily_rows(stats.sold_in(packages, comparison[0]))
+        before = stats.totals_by_store(before_rows, [], today)
     return {
         "scope": scope,
         "today": today,
@@ -100,6 +106,8 @@ def _dashboard_common(request, period):
         "rows": rows,
         "closes": closes,
         "per_store": stats.totals_by_store(rows, closes, today),
+        "before_per_store": before,
+        "compare_label": comparison[1] if comparison else None,
         "stock": stats.stock_by_store(packages.in_stock(), shop),
         "closed_today": set(scope.closes().filter(date=today).values_list("store_id", flat=True)),
         "show_private": scope.is_owner,  # Yakuza e differenza scontrini: solo titolari
@@ -116,18 +124,26 @@ def dashboard(request):
     data = _dashboard_common(request, period)
     cards = []
     for store in scope.stores():
+        totals = data["per_store"].get(store.pk) or stats.Totals()
+        before = data["before_per_store"].get(store.pk) or stats.Totals()
         cards.append(
             {
                 "store": store,
-                "totals": data["per_store"].get(store.pk) or stats.Totals(),
+                "totals": totals,
+                "change": stats.change_pct(totals.revenue, before.revenue) if data["compare_label"] else None,
                 "stock": data["stock"].get(store.pk) or {"count": 0, "weight": Decimal("0"), "value": stats.ZERO},
                 "closed_today": store.pk in data["closed_today"],
             }
         )
+    total = stats.sum_totals(data["per_store"])
+    total_before = stats.sum_totals(data["before_per_store"])
     context = {
         **data,
         "cards": cards,
-        "total": stats.sum_totals(data["per_store"]),
+        "total": total,
+        "insights": stats.insights(data["rows"], total, period, data["today"]),
+        "revenue_change": stats.change_pct(total.revenue, total_before.revenue),
+        "count_change": stats.change_pct(total.count, total_before.count),
         "bars": stats.chart_days(data["rows"], period) if period.key != "oggi" else [],
         "stock_total": {
             "count": sum(item["stock"]["count"] for item in cards),
@@ -153,10 +169,15 @@ def _store_dashboard(request, store):
     today_count = scope.packages().filter(store=store).sold().filter(
         sold_at__gte=stats.start_of_day(data["today"])
     ).count()
+    totals = data["per_store"].get(store.pk) or stats.Totals()
+    before = data["before_per_store"].get(store.pk) or stats.Totals()
     context = {
         **data,
         "store": store,
-        "totals": data["per_store"].get(store.pk) or stats.Totals(),
+        "totals": totals,
+        "insights": stats.insights(rows, totals, period, data["today"]),
+        "revenue_change": stats.change_pct(totals.revenue, before.revenue),
+        "count_change": stats.change_pct(totals.count, before.count),
         "stock": data["stock"].get(store.pk) or {"count": 0, "weight": Decimal("0"), "value": stats.ZERO},
         "bars": stats.chart_days(rows, period) if period.key != "oggi" else [],
         "days": stats.day_list(rows, closes),
@@ -205,10 +226,11 @@ class ClosingView(StoreChoiceMixin, TemplateView):
             # Si elimina da qui solo ciò che è stato inserito a fine giornata (senza foto né lotto);
             # gli altri pacchi si aprono dal dettaglio e si rimettono in magazzino.
             entry.deletable = not entry.has_photo and not entry.batch_id
+        yakuza = Q(payment=Package.Payment.YAKUZA)
         totals = day_qs.aggregate(
             revenue=Sum("sold_price"),
-            no_receipt=Sum("sold_price", filter=Q(receipt=False)),
-            no_receipt_count=Count("id", filter=Q(receipt=False)),
+            yakuza=Sum("sold_price", filter=yakuza),
+            yakuza_count=Count("id", filter=yakuza),
         )
         close = self.request.scope.closes().filter(store=self.store, date=day).first()
         context.update(
@@ -221,17 +243,22 @@ class ClosingView(StoreChoiceMixin, TemplateView):
             entries=entries,
             count=len(entries),
             revenue=totals["revenue"] or stats.ZERO,
-            no_receipt=totals["no_receipt"] or stats.ZERO,
-            no_receipt_count=totals["no_receipt_count"],
+            yakuza=totals["yakuza"] or stats.ZERO,
+            yakuza_count=totals["yakuza_count"],
             close=close,
             rules=self.price_rules(ShopSettings.load()),
-            entry_form=kwargs.get("entry_form") or ClosingEntryForm(),
+            entry_form=kwargs.get("entry_form") or ClosingEntryForm(initial={"payment": self.last_payment()}),
             close_form=kwargs.get("close_form") or CloseForm(
                 initial={"receipts_total": close.receipts_total} if close else None
             ),
             show_private=self.request.scope.is_owner,
         )
         return context
+
+    def last_payment(self):
+        """Il pagamento dell'ultimo pacco inserito: di solito si fanno più pacchi di fila con lo stesso."""
+        value = self.request.session.get("last_payment")
+        return value if value in Package.Payment.values else Package.Payment.CASH
 
     @staticmethod
     def price_rules(shop):
@@ -268,19 +295,25 @@ class ClosingView(StoreChoiceMixin, TemplateView):
 
     def add_entry(self, form, day):
         data = form.cleaned_data
-        shop = ShopSettings.load()
-        price = shop.price_for(data["weight_kg"], data["premium"])
+        # Il prezzo da listino lo calcola sempre il server; chi vende può scriverne un altro (sconto).
+        list_price = ShopSettings.load().price_for(data["weight_kg"], data["premium"])
+        price = list_price if data["price"] is None else data["price"]
         package = Package.objects.create(
             store=self.store,
             weight_kg=data["weight_kg"],
             premium=data["premium"],
-            receipt=data["receipt"],
+            payment=data["payment"],
             sold_at=self.sale_time(day),
             sold_price=price,
+            list_price=list_price,
             sold_by=self.request.user,
             created_by=self.request.user,
         )
-        messages.success(self.request, f"Pacco #{package.pk}: {kg(package.weight_kg)} kg, {euro(price)} €.")
+        self.request.session["last_payment"] = package.payment
+        text = f"Pacco #{package.pk}: {kg(package.weight_kg)} kg, {euro(price)} €"
+        if price != list_price:
+            text += f" (listino {euro(list_price)} €)"
+        messages.success(self.request, text + ".")
         return HttpResponseRedirect(self.page_url(day))
 
     def close_day(self, form, day):
@@ -544,11 +577,6 @@ class PackageSellView(PackageScopedMixin, UpdateView):
             raise PermissionDenied
         return package
 
-    def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs["can_set_price"] = self.request.scope.is_owner
-        return kwargs
-
     def get_initial(self):
         if self.object.is_sold:
             return {"sold_price": self.object.sold_price}
@@ -561,7 +589,6 @@ class PackageSellView(PackageScopedMixin, UpdateView):
             shop=shop,
             price=self.object.price_with(shop),
             price_note=price_note(shop, self.object),
-            can_set_price=self.request.scope.is_owner,
         )
         return context
 
@@ -571,13 +598,14 @@ class PackageSellView(PackageScopedMixin, UpdateView):
         if self.first_sale:
             package.sold_at = timezone.now()
             package.sold_by = self.request.user
-            if not self.request.scope.is_owner:
-                package.sold_price = package.price_with(ShopSettings.load())
+            # Il listino lo calcola il server; il prezzo scritto nel modulo può essere diverso (sconto).
+            package.list_price = package.price_with(ShopSettings.load())
         response = super().form_valid(form)
         if self.first_sale:
-            messages.success(
-                self.request, f"Pacco #{package.pk} venduto a {euro(package.sold_price)} €: ora è nello storico."
-            )
+            text = f"Pacco #{package.pk} venduto a {euro(package.sold_price)} €"
+            if package.price_adjustment:
+                text += f" (listino {euro(package.list_price)} €)"
+            messages.success(self.request, text + ": ora è nello storico.")
         else:
             messages.success(self.request, f"Pacco #{package.pk} corretto: {euro(package.sold_price)} €.")
         return response
@@ -594,9 +622,9 @@ def package_restore(request, pk):
     package = get_object_or_404(request.scope.packages().sold(), pk=pk)
     if not request.scope.can_edit_sale(package):
         raise PermissionDenied
-    package.sold_at = package.sold_price = package.sold_by = None
-    package.receipt = True
-    package.save(update_fields=["sold_at", "sold_price", "sold_by", "receipt", "updated_at"])
+    package.sold_at = package.sold_price = package.list_price = package.sold_by = None
+    package.payment = Package.Payment.CASH
+    package.save(update_fields=["sold_at", "sold_price", "list_price", "sold_by", "payment", "updated_at"])
     messages.success(request, f"Pacco #{package.pk} rimesso in magazzino.")
     return redirect("inventory:detail", pk=package.pk)
 

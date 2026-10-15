@@ -21,23 +21,17 @@
 
 <form method="post" class="stack">
   {% csrf_token %}
-  {% if can_set_price %}
-    <div class="field{% if form.sold_price.errors %} has-error{% endif %}">
-      <label for="{{ form.sold_price.id_for_label }}">Prezzo di vendita</label>
-      <div class="readout-input">{{ form.sold_price }}<span>€</span></div>
-      {% for error in form.sold_price.errors %}<p class="error">{{ error }}</p>{% endfor %}
-      {% if object.is_sold %}
-        <p class="hint">Il prezzo resta quello della vendita anche se cambiano i prezzi: lo modifichi solo qui.</p>
-      {% else %}
-        <p class="hint">Calcolato: {{ price|floatformat:2 }} € ({{ price_note }}). Cambialo se vendi a un prezzo diverso.</p>
-      {% endif %}
-    </div>
-  {% else %}
-    <p class="price-preview">Prezzo: <strong>{{ price|floatformat:2 }} €</strong> <span class="hint-inline">({{ price_note }})</span></p>
-  {% endif %}
-  <div class="checks">
-    <label class="check">{{ form.receipt }} <span>Scontrino emesso</span></label>
+  <div class="field{% if form.sold_price.errors %} has-error{% endif %}">
+    <label for="{{ form.sold_price.id_for_label }}">Prezzo di vendita</label>
+    <div class="readout-input">{{ form.sold_price }}<span>€</span></div>
+    {% for error in form.sold_price.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    {% if object.is_sold %}
+      <p class="hint">Il prezzo resta quello della vendita anche se cambiano i prezzi: lo modifichi solo qui.</p>
+    {% else %}
+      <p class="hint">Calcolato: {{ price|floatformat:2 }} € ({{ price_note }}). Per fare uno sconto o vendere a un prezzo concordato, scrivi qui il prezzo finale.</p>
+    {% endif %}
   </div>
+  {% include "inventory/_payment.html" with field=form.payment %}
   <div class="actions">
     <button class="btn btn-primary" type="submit">{% if object.is_sold %}Salva{% else %}Conferma vendita{% endif %}</button>
     <a class="btn btn-quiet" href="{% url 'inventory:detail' object.pk %}">Annulla</a>

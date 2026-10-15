@@ -1,0 +1,69 @@
+"""La migrazione 0007 deve conservare le vendite già registrate: nessun dato perso né cambiato di significato."""
+from decimal import Decimal
+
+from django.core.management import call_command
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TransactionTestCase
+
+BEFORE = [("inventory", "0006_prezzo_listino")]
+AFTER = [("inventory", "0007_metodo_pagamento")]
+
+
+class PaymentMigrationTests(TransactionTestCase):
+    # Il test riporta il database indietro e poi in avanti: lo stato iniziale (i tre centri) va ripristinato.
+    serialized_rollback = True
+
+    def migrate(self, targets):
+        executor = MigrationExecutor(connection)
+        executor.migrate(targets)
+        return executor.loader.project_state(targets).apps
+
+    def tearDown(self):
+        call_command("migrate", verbosity=0)  # lascia il database all'ultima migrazione
+        super().tearDown()
+
+    def make(self, apps, **fields):
+        Store = apps.get_model("inventory", "Store")
+        Package = apps.get_model("inventory", "Package")
+        store = Store.objects.get(name="Milanofiori")
+        return Package.objects.create(store=store, weight_kg=Decimal("1.000"), **fields)
+
+    def test_old_sales_keep_their_meaning(self):
+        old = self.migrate(BEFORE)
+        with_receipt = self.make(old, sold_price=Decimal("25.00"), sold_at="2026-10-01T10:00:00Z", receipt=True)
+        without_receipt = self.make(old, sold_price=Decimal("25.00"), sold_at="2026-10-01T10:00:00Z", receipt=False)
+        in_stock = self.make(old, receipt=False)  # ancora in magazzino: il flag non conta
+
+        new = self.migrate(AFTER)
+        Package = new.get_model("inventory", "Package")
+        payments = dict(Package.objects.values_list("pk", "payment"))
+        self.assertEqual(payments[with_receipt.pk], "other")  # il metodo non era indicato
+        self.assertEqual(payments[without_receipt.pk], "yakuza")  # «senza scontrino» è Yakuza
+        self.assertEqual(payments[in_stock.pk], "cash")  # valore di base, nessun pagamento ancora
+        self.assertNotIn("receipt", [f.name for f in Package._meta.get_fields()])
+
+    def test_other_fields_of_a_sale_are_untouched(self):
+        old = self.migrate(BEFORE)
+        sale = self.make(
+            old, sold_price=Decimal("48.00"), list_price=Decimal("50.00"), sold_at="2026-10-01T10:00:00Z", premium=True, notes="x"
+        )
+        new = self.migrate(AFTER)
+        package = new.get_model("inventory", "Package").objects.get(pk=sale.pk)
+        self.assertEqual(
+            (package.sold_price, package.list_price, package.premium, package.notes, package.weight_kg),
+            (Decimal("48.00"), Decimal("50.00"), True, "x", Decimal("1.000")),
+        )
+
+    def test_it_can_be_undone(self):
+        self.migrate(BEFORE)
+        new = self.migrate(AFTER)
+        Package = new.get_model("inventory", "Package")
+        store = new.get_model("inventory", "Store").objects.get(name="Milanofiori")
+        yakuza = Package.objects.create(store=store, weight_kg=Decimal("1"), sold_price=Decimal("25"), sold_at="2026-10-01T10:00:00Z", payment="yakuza")
+        card = Package.objects.create(store=store, weight_kg=Decimal("1"), sold_price=Decimal("25"), sold_at="2026-10-01T10:00:00Z", payment="card")
+
+        back = self.migrate(BEFORE)
+        Old = back.get_model("inventory", "Package")
+        self.assertFalse(Old.objects.get(pk=yakuza.pk).receipt)
+        self.assertTrue(Old.objects.get(pk=card.pk).receipt)

@@ -175,6 +175,14 @@ class PackageQuerySet(models.QuerySet):
 class Package(models.Model):
     """Un pacco. Finché `sold_at` è vuoto è in magazzino; venduto finisce nello storico."""
 
+    class Payment(models.TextChoices):
+        """Come è stato pagato. Tutti hanno lo scontrino tranne «Yakuza», il venduto in nero."""
+
+        CASH = "cash", "Contanti"
+        CARD = "card", "Carta"
+        OTHER = "other", "Altro"
+        YAKUZA = "yakuza", "Yakuza"
+
     store = models.ForeignKey(Store, verbose_name="Centro", on_delete=models.PROTECT, related_name="packages")
     batch = models.ForeignKey(
         Batch,
@@ -223,8 +231,15 @@ class Package(models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
     )
-    # Scontrino emesso alla vendita. Il fatturato dei pacchi venduti senza scontrino è la voce "Yakuza".
-    receipt = models.BooleanField("Scontrino emesso", default=True)
+    # Prezzo secondo le regole nel momento della vendita. Chi vende può scrivere un prezzo diverso
+    # (sconto, prezzo concordato): la differenza con `sold_price` è lo sconto. Vuoto per le vendite
+    # registrate prima che esistesse questo campo.
+    list_price = models.DecimalField(
+        "Prezzo da listino (€)", max_digits=8, decimal_places=2, null=True, blank=True
+    )
+    # Metodo di pagamento alla vendita. Il fatturato dei pacchi «Yakuza» è la voce Yakuza della dashboard;
+    # per gli altri metodi lo scontrino c'è.
+    payment = models.CharField("Pagamento", max_length=10, choices=Payment.choices, default=Payment.CASH)
 
     objects = PackageQuerySet.as_manager()
 
@@ -249,9 +264,25 @@ class Package(models.Model):
     def has_photo(self):
         return bool(self.photo)
 
+    @property
+    def is_yakuza(self):
+        return self.payment == self.Payment.YAKUZA
+
+    @property
+    def receipt(self):
+        """Lo scontrino c'è per ogni pagamento tranne Yakuza."""
+        return not self.is_yakuza
+
     def price_with(self, shop):
         """Prezzo in base alle regole correnti (peso, premium, pacco piccolo)."""
         return shop.price_for(self.weight_kg, self.premium)
+
+    @property
+    def price_adjustment(self):
+        """Quanto il prezzo di vendita si discosta dal listino (negativo = sconto); None se uguale o ignoto."""
+        if self.sold_price is None or self.list_price is None:
+            return None
+        return (self.sold_price - self.list_price) or None
 
 
 class DayClose(models.Model):

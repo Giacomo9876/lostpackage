@@ -1,0 +1,11 @@
+{# Come si divide l'incasso tra contanti, carta, altro e Yakuza. Serve `totals` (Totals). #}
+{% if totals.revenue %}
+  <div class="mix" role="img" aria-label="Ripartizione dell'incasso per pagamento">
+    {% for seg in totals.mix %}{% if seg.weight %}<span class="mix-seg mix-{{ seg.key }}" style="--n: {{ seg.weight }}"></span>{% endif %}{% endfor %}
+  </div>
+  <ul class="mix-legend">
+    {% for seg in totals.mix %}
+      <li><span class="swatch mix-{{ seg.key }}"></span><span class="mix-name">{{ seg.label }}</span> <b>{{ seg.amount|floatformat:"2g" }} €</b> <span class="mix-pct">{{ seg.pct }}%</span></li>
+    {% endfor %}
+  </ul>
+{% endif %}

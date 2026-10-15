@@ -152,20 +152,30 @@ class ManagerIsolationTests(ScopeCase):
         self.assertNotContains(response, "Tor Vergata")
         self.assertEqual(self.client.get(reverse("inventory:store", args=[store("Milanofiori").pk])).status_code, 200)
 
-    def test_manager_pages_never_mention_yakuza_or_cash_differences(self):
-        sell_on(timezone.localdate(), "1.000", "25.00", receipt=False)
+    def test_manager_dashboard_never_shows_yakuza_totals_payments_or_differences(self):
+        sell_on(timezone.localdate(), "1.000", "25.00", payment="yakuza")
+        sell_on(timezone.localdate(), "1.000", "25.00", payment="card")
         close_day(timezone.localdate(), "10")
-        pages = [
+        for url in (
             reverse("inventory:dashboard"),
             f"{reverse('inventory:dashboard')}?periodo=sempre",
-            reverse("inventory:closing"),
-            reverse("inventory:history"),
-            reverse("inventory:list"),
-        ]
-        for url in pages:
+            f"{reverse('inventory:dashboard')}?periodo=90g",
+        ):
             with self.subTest(url=url):
                 body = self.client.get(url).content.decode()
                 self.assertNotIn("Yakuza", body)
+                self.assertNotIn("Pagamenti", body)
+                self.assertNotIn("ifferenza", body)
+                self.assertNotIn("Sconti", body)
+
+    def test_other_manager_pages_have_no_yakuza_totals_or_differences(self):
+        # La parola compare dove il manager sceglie il pagamento, ma mai un totale Yakuza né differenze di cassa.
+        sell_on(timezone.localdate(), "1.000", "25.00", payment="yakuza")
+        close_day(timezone.localdate(), "10")
+        for url in (reverse("inventory:closing"), reverse("inventory:history"), reverse("inventory:list")):
+            with self.subTest(url=url):
+                body = self.client.get(url).content.decode()
+                self.assertNotIn("di cui Yakuza", body)
                 self.assertNotIn("ifferenza", body)
 
 
@@ -282,7 +292,7 @@ class NoRoleTests(ScopeCase):
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, 403)
                 self.assertTemplateUsed(response, "no_access.html")
-        response = self.client.post(reverse("inventory:sell", args=[self.pkg_m.pk]), {"receipt": "on"})
+        response = self.client.post(reverse("inventory:sell", args=[self.pkg_m.pk]), {"payment": "cash"})
         self.assertEqual(response.status_code, 403)
         self.pkg_m.refresh_from_db()
         self.assertFalse(self.pkg_m.is_sold)

@@ -20,6 +20,16 @@ DEFAULT_TOLERANCE_G = 50
 
 MONEY_WIDGET_ATTRS = {"inputmode": "decimal", "placeholder": "0,00", "autocomplete": "off"}
 
+# Il prezzo di vendita si può scrivere a mano (sconti, prezzi concordati), ma entro limiti ragionevoli:
+# un errore di battitura come 5000 al posto di 50 non deve finire nel fatturato.
+MAX_SALE_PRICE = Decimal("9999.99")
+
+
+def check_sale_price(value):
+    if value is not None and not Decimal("0") <= value <= MAX_SALE_PRICE:
+        raise ValidationError("Il prezzo deve essere tra 0 e 9999,99 €.")
+    return value
+
 
 class PackageForm(forms.ModelForm):
     """Registra o modifica un pacco di un centro. Foto e lotto sono facoltativi.
@@ -135,27 +145,27 @@ class BatchForm(forms.ModelForm):
 class SaleForm(forms.ModelForm):
     """Conferma della vendita dal magazzino.
 
-    Il prezzo lo calcolano le regole (peso, premium, pacco piccolo). Solo i titolari possono
-    cambiarlo; per lo store manager il campo non esiste.
+    Il prezzo parte da quello delle regole (peso, premium, pacco piccolo) ma chi vende può
+    scriverne un altro: uno sconto, un prezzo concordato.
     """
 
     class Meta:
         model = Package
-        fields = ["sold_price", "receipt"]
-        labels = {"sold_price": "Prezzo di vendita", "receipt": "Scontrino emesso"}
+        fields = ["sold_price", "payment"]
+        labels = {"sold_price": "Prezzo di vendita", "payment": "Pagamento"}
         localized_fields = ["sold_price"]
-        widgets = {"sold_price": forms.TextInput(attrs=MONEY_WIDGET_ATTRS)}
+        widgets = {"sold_price": forms.TextInput(attrs=MONEY_WIDGET_ATTRS), "payment": forms.RadioSelect}
 
-    def __init__(self, *args, can_set_price, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if can_set_price:
-            self.fields["sold_price"].required = True
-        else:
-            del self.fields["sold_price"]
+        self.fields["sold_price"].required = True
+
+    def clean_sold_price(self):
+        return check_sale_price(self.cleaned_data["sold_price"])
 
 
 class ClosingEntryForm(forms.Form):
-    """Un pacco venduto, inserito a fine giornata: peso, premium e scontrino."""
+    """Un pacco venduto, inserito a fine giornata: peso, premium, pagamento e (se serve) il prezzo."""
 
     weight_kg = forms.DecimalField(
         label="Peso",
@@ -167,7 +177,24 @@ class ClosingEntryForm(forms.Form):
         widget=forms.TextInput(attrs={"inputmode": "decimal", "placeholder": "0,000", "autocomplete": "off"}),
     )
     premium = forms.BooleanField(label="Pacco premium", required=False)
-    receipt = forms.BooleanField(label="Scontrino emesso", required=False, initial=True)
+    payment = forms.ChoiceField(
+        label="Pagamento",
+        choices=Package.Payment.choices,
+        initial=Package.Payment.CASH,
+        widget=forms.RadioSelect,
+    )
+    # Vuoto = prezzo calcolato dalle regole. Il browser lo precompila e lo aggiorna da solo.
+    price = forms.DecimalField(
+        label="Prezzo",
+        required=False,
+        max_digits=7,
+        decimal_places=2,
+        localize=True,
+        widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
+    )
+
+    def clean_price(self):
+        return check_sale_price(self.cleaned_data["price"])
 
 
 class CloseForm(forms.Form):

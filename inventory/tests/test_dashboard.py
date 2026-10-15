@@ -1,4 +1,4 @@
-"""Numeri della dashboard: venduto, Yakuza (senza scontrino), scontrini in cassa e differenze."""
+"""Numeri della dashboard: venduto, pagamenti (Yakuza = senza scontrino), scontrini in cassa, differenze e andamento."""
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -26,8 +26,12 @@ class PeriodTests(TestCase):
     def test_periods(self):
         cases = {
             "oggi": (self.today, self.today),
+            "3g": (date(2026, 10, 10), self.today),
             "7g": (date(2026, 10, 6), self.today),
+            "14g": (date(2026, 9, 29), self.today),
             "30g": (date(2026, 9, 13), self.today),
+            "60g": (date(2026, 8, 14), self.today),
+            "90g": (date(2026, 7, 15), self.today),
             "mese": (date(2026, 10, 1), self.today),
             "sempre": (None, self.today),
         }
@@ -35,6 +39,18 @@ class PeriodTests(TestCase):
             with self.subTest(key=key):
                 period = stats.get_period(key, today=self.today)
                 self.assertEqual((period.key, period.start, period.end), (key, start, end))
+
+    def test_the_requested_periods_are_all_offered_in_order(self):
+        self.assertEqual(
+            [label for key, label in stats.PERIODS if key in stats.PERIOD_DAYS],
+            ["Oggi", "3 giorni", "7 giorni", "2 settimane", "1 mese", "2 mesi", "3 mesi"],
+        )
+        self.assertEqual([stats.PERIOD_DAYS[k] for k in ("oggi", "3g", "7g", "14g", "30g", "60g", "90g")], [1, 3, 7, 14, 30, 60, 90])
+
+    def test_period_length_in_days(self):
+        self.assertEqual(stats.get_period("14g", today=self.today).days, 14)
+        self.assertEqual(stats.get_period("mese", today=self.today).days, 12)
+        self.assertIsNone(stats.get_period("sempre", today=self.today).days)
 
     def test_unknown_period_falls_back_to_the_default(self):
         for raw in (None, "", "x", "7G", "1;drop"):
@@ -76,7 +92,7 @@ class TotalsTests(TestCase):
         cls.d1, cls.d2 = cls.today - timedelta(days=3), cls.today - timedelta(days=2)
         # Milanofiori
         sell_on(cls.d1, "1", "25.00")
-        sell_on(cls.d1, "0.4", "10.00", receipt=False)
+        sell_on(cls.d1, "0.4", "10.00", payment="yakuza")
         close_day(cls.d1, "20.00")  # i pacchi con scontrino fanno 25: differenza +5
         sell_on(cls.d2, "2", "50.00")  # nessuna chiusura
         sell_on(cls.today, "1.2", "30.00")  # oggi: non è ancora «mancante»
@@ -87,22 +103,22 @@ class TotalsTests(TestCase):
     def test_totals_per_center(self):
         per_store, _, _ = totals(today=self.today)
         m, g = per_store[store("Milanofiori").pk], per_store[store("Globo").pk]
-        self.assertEqual((m.count, m.revenue, m.no_receipt, m.no_receipt_count), (4, D("115.00"), D("10.00"), 1))
+        self.assertEqual((m.count, m.revenue, m.yakuza, m.yakuza_count), (4, D("115.00"), D("10.00"), 1))
         self.assertEqual((m.with_receipt, m.with_receipt_count), (D("105.00"), 3))
         self.assertEqual((m.declared, m.recorded_closed, m.difference), (D("20.00"), D("25.00"), D("5.00")))
         self.assertEqual((m.closed_days, m.missing_closes), (1, 1))
-        self.assertEqual((g.revenue, g.no_receipt, g.difference, g.missing_closes), (D("40.00"), D("0"), D("-5.00"), 0))
+        self.assertEqual((g.revenue, g.yakuza, g.difference, g.missing_closes), (D("40.00"), D("0"), D("-5.00"), 0))
         self.assertEqual(m.weight, D("4.600"))
 
     def test_yakuza_percentage(self):
         per_store, _, _ = totals(today=self.today)
-        self.assertEqual(per_store[store("Milanofiori").pk].no_receipt_pct, 9)  # 10 su 115
-        self.assertEqual(stats.Totals().no_receipt_pct, 0)  # niente vendite: nessuna divisione per zero
+        self.assertEqual(per_store[store("Milanofiori").pk].yakuza_pct, 9)  # 10 su 115
+        self.assertEqual(stats.Totals().yakuza_pct, 0)  # niente vendite: nessuna divisione per zero
 
     def test_grand_total_adds_the_centers_up(self):
         per_store, _, _ = totals(today=self.today)
         total = stats.sum_totals(per_store)
-        self.assertEqual((total.count, total.revenue, total.no_receipt), (5, D("155.00"), D("10.00")))
+        self.assertEqual((total.count, total.revenue, total.yakuza), (5, D("155.00"), D("10.00")))
         self.assertEqual((total.declared, total.recorded_closed), (D("65.00"), D("65.00")))
         self.assertEqual(total.missing_closes, 1)
 
@@ -124,7 +140,7 @@ class TotalsTests(TestCase):
     def test_empty_period_is_all_zeros(self):
         per_store, _, _ = totals("30g", today=date(2020, 1, 1))
         total = stats.sum_totals(per_store)
-        self.assertEqual((total.count, total.revenue, total.no_receipt, total.declared), (0, D("0"), D("0"), D("0")))
+        self.assertEqual((total.count, total.revenue, total.yakuza, total.declared), (0, D("0"), D("0"), D("0")))
 
     def test_chart_has_one_bar_per_day_and_marks_the_yakuza_share(self):
         _, rows, _ = totals(today=self.today)
@@ -132,13 +148,14 @@ class TotalsTests(TestCase):
         self.assertEqual(len(bars), 7)
         by_day = {bar["day"]: bar for bar in bars}
         d1 = by_day[self.d1]
-        self.assertEqual((d1["revenue"], d1["no_receipt"]), (D("75.00"), D("10.00")))
-        self.assertEqual(d1["no_receipt_share"], 13)  # 10 su 75
+        self.assertEqual((d1["revenue"], d1["yakuza"]), (D("75.00"), D("10.00")))
+        self.assertEqual(d1["yakuza_share"], 13)  # 10 su 75
         self.assertEqual(max(bar["height"] for bar in bars), 100)
         self.assertEqual(by_day[self.today - timedelta(days=1)]["height"], 0)  # giorno senza vendite
 
     def test_chart_is_capped_and_empty_without_sales(self):
         _, rows, _ = totals(today=self.today)
+        self.assertEqual(stats.CHART_DAYS, 90)  # «3 mesi» si vede per intero
         self.assertEqual(len(stats.chart_days(rows, stats.get_period("sempre", today=self.today))), stats.CHART_DAYS)
         self.assertEqual(len(stats.chart_days(rows, stats.get_period("oggi", today=self.today))), 1)
         empty = stats.chart_days([], stats.get_period("7g", today=self.today))
@@ -155,7 +172,7 @@ class TotalsTests(TestCase):
         quiet = items[1]
         self.assertEqual((quiet["count"], quiet["revenue"], quiet["closed"], quiet["difference"]), (0, D("0"), True, D("-7.00")))
         first = items[3]
-        self.assertEqual((first["revenue"], first["no_receipt"], first["declared"], first["difference"]), (D("35.00"), D("10.00"), D("20.00"), D("5.00")))
+        self.assertEqual((first["revenue"], first["yakuza"], first["declared"], first["difference"]), (D("35.00"), D("10.00"), D("20.00"), D("5.00")))
         self.assertFalse(items[0]["closed"])
         self.assertIsNone(items[0]["difference"])
 
@@ -176,7 +193,7 @@ class OwnerDashboardTests(BaseCase):
         super().setUpTestData()
         cls.today = timezone.localdate()
         sell_on(cls.today, "1", "25.00")
-        sell_on(cls.today, "1.6", "40.00", receipt=False)
+        sell_on(cls.today, "1.6", "40.00", payment="yakuza")
         close_day(cls.today, "20.00")
         sell_on(cls.today, "2", "50.00", store_name="Globo")
 
@@ -187,7 +204,7 @@ class OwnerDashboardTests(BaseCase):
     def test_overview_shows_the_totals_and_the_three_centers(self):
         response = self.client.get(self.url, {"periodo": "oggi"})
         total = response.context["total"]
-        self.assertEqual((total.revenue, total.no_receipt, total.count), (D("115.00"), D("40.00"), 3))
+        self.assertEqual((total.revenue, total.yakuza, total.count), (D("115.00"), D("40.00"), 3))
         self.assertEqual(len(response.context["cards"]), 3)
         self.assertContains(response, "Yakuza")
         self.assertContains(response, "115,00 €")
@@ -287,3 +304,74 @@ class ManagerDashboardTests(BaseCase):
         self.assertContains(self.client.get(reverse("inventory:dashboard")), "Milanofiori</span>")
         self.as_owner()
         self.assertContains(self.client.get(reverse("inventory:dashboard")), "Titolare</span>")
+
+
+class DiscountTests(BaseCase):
+    """Gli sconti (prezzo scritto a mano più basso del listino) li vedono solo i titolari."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.today = timezone.localdate()
+        sell_on(cls.today, "2", "48.00", list_price="50.00")  # sconto 2
+        sell_on(cls.today, "3", "70.00", list_price="75.00")  # sconto 5
+        sell_on(cls.today, "1", "30.00", list_price="25.00")  # maggiorato: non è uno sconto
+        sell_on(cls.today, "1", "20.00")  # vendita vecchia, senza listino
+        sell_on(cls.today, "2", "40.00", list_price="50.00", store_name="Globo")  # sconto 10
+
+    def test_totals_count_only_real_discounts(self):
+        per_store, rows, _ = totals("oggi", today=self.today)
+        milan = per_store[store("Milanofiori").pk]
+        self.assertEqual((milan.discount, milan.discount_count), (D("7.00"), 2))
+        globo = per_store[store("Globo").pk]
+        self.assertEqual((globo.discount, globo.discount_count), (D("10.00"), 1))
+        self.assertEqual(stats.sum_totals(per_store).discount, D("17.00"))
+
+    def test_day_list_has_the_discount(self):
+        per_store, rows, closes = totals("oggi", today=self.today)
+        mid = store("Milanofiori").pk
+        items = stats.day_list([r for r in rows if r["store_id"] == mid], [])
+        self.assertEqual(items[0]["discount"], D("7.00"))
+
+    def test_the_owner_sees_the_discounts(self):
+        self.as_owner()
+        response = self.client.get(reverse("inventory:dashboard"), {"periodo": "oggi"})
+        self.assertContains(response, "Sconti: 17,00 € su 3 pacchi")
+        self.assertContains(response, "Sconti 7,00 € (2)")
+        center = self.client.get(reverse("inventory:store", args=[store("Milanofiori").pk]), {"periodo": "oggi"})
+        self.assertContains(center, "Sconti: 7,00 € su 2 pacchi")
+        self.assertContains(center, "sconti 7,00 €")
+
+    def test_the_manager_never_sees_the_discount_totals(self):
+        response = self.client.get(reverse("inventory:dashboard"), {"periodo": "oggi"})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Sconti")
+        self.assertNotContains(response, "sconti")
+
+    def test_nothing_is_shown_without_discounts(self):
+        Package.objects.update(list_price=None)
+        self.as_owner()
+        response = self.client.get(reverse("inventory:dashboard"), {"periodo": "oggi"})
+        self.assertNotContains(response, "Sconti")
+
+
+class PriceAdjustmentTests(BaseCase):
+    def test_adjustment_property(self):
+        cases = [("48", "50", "-2.00"), ("55", "50", "5.00"), ("50", "50", None), ("50", None, None)]
+        for sold, listed, expected in cases:
+            with self.subTest(sold=sold, listed=listed):
+                package = Package(sold_price=D(sold), list_price=None if listed is None else D(listed))
+                self.assertEqual(package.price_adjustment, None if expected is None else D(expected))
+        self.assertIsNone(Package(weight_kg=D("1")).price_adjustment)  # non venduto
+
+    def test_detail_and_history_show_the_listino(self):
+        discounted = sell_on(timezone.localdate(), "2", "48.00", list_price="50.00")
+        raised = sell_on(timezone.localdate(), "1", "30.00", list_price="25.00")
+        plain = sell_on(timezone.localdate(), "1", "25.00", list_price="25.00")
+        detail = self.client.get(reverse("inventory:detail", args=[discounted.pk]))
+        self.assertContains(detail, "listino 50,00 €, sconto 2,00 €")
+        self.assertContains(self.client.get(reverse("inventory:detail", args=[raised.pk])), "maggiorato di 5,00 €")
+        self.assertNotContains(self.client.get(reverse("inventory:detail", args=[plain.pk])), "listino")
+        history = self.client.get(reverse("inventory:history"))
+        self.assertContains(history, "Listino 50,00 €")
+        self.assertContains(history, "Listino 25,00 €", count=1)

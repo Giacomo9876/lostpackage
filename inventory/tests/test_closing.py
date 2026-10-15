@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from ..models import DayClose, Package, ShopSettings
-from .helpers import BaseCase, close_day, create_package, make_batch, sell_on, store
+from .helpers import BaseCase, close_day, create_package, make_batch, sale_data, sell_on, store
 
 
 class ClosingBase(BaseCase):
@@ -15,12 +15,10 @@ class ClosingBase(BaseCase):
     def day_url(self, day):
         return f"{self.url}?data={day.isoformat()}"
 
-    def add(self, weight, premium=False, receipt=True, url=None, **extra):
-        data = {"azione": "pacco", "weight_kg": weight, **extra}
+    def add(self, weight, premium=False, payment="cash", url=None, **extra):
+        data = {"azione": "pacco", "weight_kg": weight, "payment": payment, **extra}
         if premium:
             data["premium"] = "on"
-        if receipt:
-            data["receipt"] = "on"
         return self.client.post(url or self.url, data)
 
     def close(self, total, url=None):
@@ -37,12 +35,25 @@ class EntryTests(ClosingBase):
             {"small_max_g": 200, "small_cents": 500, "rate_cents": 2500, "premium_cents": 3000},
         )
         self.assertContains(response, 'data-rate-cents="2500"')
-        self.assertContains(response, "Scontrino emesso")
         self.assertContains(response, "Pacco premium")
+        for label in ("Contanti", "Carta", "Altro", "Yakuza"):
+            self.assertContains(response, f'<span class="pay-name">{label}</span>', html=False)
 
-    def test_receipt_is_ticked_by_default(self):
-        self.assertTrue(self.client.get(self.url).context["entry_form"].fields["receipt"].initial)
-        self.assertContains(self.client.get(self.url), 'name="receipt" id="id_receipt" checked')
+    def test_cash_is_preselected_the_first_time(self):
+        self.assertEqual(self.client.get(self.url).context["entry_form"]["payment"].value(), "cash")
+        self.assertContains(self.client.get(self.url), 'id="id_payment_0" required checked')
+
+    def test_the_last_payment_used_is_preselected_next_time(self):
+        self.add("1", payment="card")
+        form = self.client.get(self.url).context["entry_form"]
+        self.assertEqual(form["payment"].value(), "card")
+        self.add("1", payment="yakuza")
+        self.assertEqual(self.client.get(self.url).context["entry_form"]["payment"].value(), "yakuza")
+
+    def test_a_failed_entry_does_not_change_the_remembered_payment(self):
+        self.add("1", payment="card")
+        self.add("abc", payment="yakuza")
+        self.assertEqual(self.client.get(self.url).context["entry_form"]["payment"].value(), "card")
 
     def test_adding_a_package_records_a_sale_with_the_computed_price(self):
         response = self.add("1,250")
@@ -51,7 +62,9 @@ class EntryTests(ClosingBase):
         self.assertEqual(package.store, store("Milanofiori"))
         self.assertEqual(package.weight_kg, Decimal("1.250"))
         self.assertEqual(package.sold_price, Decimal("31.25"))
-        self.assertTrue(package.is_sold and package.receipt and not package.premium)
+        self.assertTrue(package.is_sold and not package.premium)
+        self.assertEqual(package.payment, Package.Payment.CASH)
+        self.assertTrue(package.receipt and not package.is_yakuza)
         self.assertEqual((package.sold_by, package.created_by), (self.user, self.user))
         self.assertLess((timezone.now() - package.sold_at).total_seconds(), 60)
         self.assertFalse(package.has_photo)
@@ -80,13 +93,102 @@ class EntryTests(ClosingBase):
         self.add("2")
         self.assertEqual(Package.objects.get().sold_price, Decimal("40.00"))
 
-    def test_a_price_posted_by_the_manager_is_ignored(self):
-        self.add("2", sold_price="1")
-        self.assertEqual(Package.objects.get().sold_price, Decimal("50.00"))
+    def test_the_price_field_is_on_the_page(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, 'name="price"')
+        self.assertContains(response, "data-price-reset")
+        self.assertIn("price", response.context["entry_form"].fields)
 
-    def test_without_receipt_is_recorded(self):
-        self.add("1", receipt=False)
-        self.assertFalse(Package.objects.get().receipt)
+    def test_without_a_price_the_listino_applies(self):
+        self.add("2")
+        package = Package.objects.get()
+        self.assertEqual((package.sold_price, package.list_price), (Decimal("50.00"), Decimal("50.00")))
+        self.assertIsNone(package.price_adjustment)
+
+    def test_the_price_can_be_written_for_a_discount(self):
+        response = self.add("2", price="48")
+        followed = self.client.get(response["Location"])
+        package = Package.objects.get()
+        self.assertEqual((package.sold_price, package.list_price), (Decimal("48.00"), Decimal("50.00")))
+        self.assertEqual(package.price_adjustment, Decimal("-2.00"))
+        self.assertContains(followed, "2,000 kg, 48,00 € (listino 50,00 €)")
+        self.assertContains(followed, "Listino 50,00 €")  # anche nella riga del pacco
+
+    def test_prices_like_70_or_80_for_big_parcels(self):
+        for price in ("50", "70", "80,50", "47.5"):
+            self.add("3", price=price)
+        self.assertEqual(
+            sorted(Package.objects.values_list("sold_price", flat=True)),
+            [Decimal("47.50"), Decimal("50.00"), Decimal("70.00"), Decimal("80.50")],
+        )
+        # il listino di un pacco da 3 kg resta 75 per tutti
+        self.assertEqual(set(Package.objects.values_list("list_price", flat=True)), {Decimal("75.00")})
+
+    def test_the_price_equal_to_the_listino_is_not_an_adjustment(self):
+        self.add("2", price="50,00")
+        package = Package.objects.get()
+        self.assertIsNone(package.price_adjustment)
+        self.assertNotContains(self.client.get(self.url), "Listino 50,00 €")
+
+    def test_a_higher_price_is_allowed_and_not_counted_as_a_discount(self):
+        self.add("2", price="55")
+        package = Package.objects.get()
+        self.assertEqual(package.price_adjustment, Decimal("5.00"))
+        self.assertEqual(Package.objects.get().sold_price, Decimal("55.00"))
+
+    def test_a_free_parcel_is_allowed(self):
+        self.add("2", price="0")
+        self.assertEqual(Package.objects.get().sold_price, Decimal("0.00"))
+
+    def test_invalid_prices_are_rejected_and_nothing_is_saved(self):
+        for raw in ("-1", "abc", "10000", "50,555", "nan", "inf"):
+            with self.subTest(raw=raw):
+                response = self.add("2", price=raw)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("price", response.context["entry_form"].errors)
+        self.assertEqual(Package.objects.count(), 0)
+
+    def test_the_price_typed_stays_on_the_page_when_the_weight_is_wrong(self):
+        response = self.add("", price="48,00")
+        self.assertContains(response, 'value="48,00"')
+
+    def test_the_owner_can_write_the_price_too(self):
+        self.as_owner()
+        mid = store("Milanofiori").pk
+        self.add("2", price="45", url=f"{self.url}?centro={mid}")
+        self.assertEqual(Package.objects.get().sold_price, Decimal("45.00"))
+
+    def test_the_listino_cannot_be_posted(self):
+        self.add("2", price="40", list_price="40")
+        self.assertEqual(Package.objects.get().list_price, Decimal("50.00"))
+
+    def test_every_payment_method_is_recorded(self):
+        for value in Package.Payment.values:
+            self.add("1", payment=value)
+        self.assertEqual(
+            sorted(Package.objects.values_list("payment", flat=True)),
+            sorted(Package.Payment.values),
+        )
+
+    def test_only_yakuza_counts_as_without_receipt(self):
+        for value in Package.Payment.values:
+            self.add("1", payment=value)
+        self.assertEqual({p.payment: p.receipt for p in Package.objects.all()},
+                         {"cash": True, "card": True, "other": True, "yakuza": False})
+
+    def test_an_unknown_payment_is_rejected(self):
+        for raw in ("bitcoin", "", "CASH"):
+            with self.subTest(raw=raw):
+                response = self.add("1", payment=raw)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("payment", response.context["entry_form"].errors)
+        self.assertEqual(Package.objects.count(), 0)
+
+    def test_a_missing_payment_is_rejected_rather_than_guessed(self):
+        response = self.client.post(self.url, {"azione": "pacco", "weight_kg": "1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("payment", response.context["entry_form"].errors)
+        self.assertEqual(Package.objects.count(), 0)
 
     def test_premium_is_recorded(self):
         self.add("1", premium=True)
@@ -109,7 +211,7 @@ class EntryTests(ClosingBase):
 
     def test_entries_of_the_day_are_listed_newest_first_with_totals(self):
         self.add("1")
-        self.add("0,5", premium=True, receipt=False)
+        self.add("0,5", premium=True, payment="yakuza")
         response = self.client.get(self.url)
         weights = [p.weight_kg for p in response.context["entries"]]
         self.assertEqual(weights, [Decimal("0.500"), Decimal("1.000")])
@@ -117,7 +219,8 @@ class EntryTests(ClosingBase):
         self.assertEqual(response.context["revenue"], Decimal("40.00"))
         self.assertContains(response, "2 pacchi · 40,00 €")
         self.assertContains(response, "Premium")
-        self.assertContains(response, "No scontrino")
+        self.assertContains(response, '<span class="tag tag-warn">Yakuza</span>', html=False)
+        self.assertContains(response, '<span class="tag">Contanti</span>', html=False)
 
     def test_only_this_centers_sales_of_this_day_are_listed(self):
         today = timezone.localdate()
@@ -128,16 +231,20 @@ class EntryTests(ClosingBase):
         self.assertEqual(response.context["count"], 1)
         self.assertEqual(response.context["revenue"], Decimal("25.00"))
 
-    def test_owner_sees_the_yakuza_line_and_manager_does_not(self):
-        self.add("1", receipt=False)
-        self.assertNotContains(self.client.get(self.url), "Yakuza")
+    def test_owner_sees_the_yakuza_total_and_manager_does_not(self):
+        self.add("1", payment="yakuza")
+        self.add("1", payment="card")
+        response = self.client.get(self.url)
+        self.assertNotContains(response, "di cui Yakuza")  # il totale Yakuza è riservato ai titolari
+        self.assertContains(response, "Yakuza")  # ma l'etichetta sul singolo pacco la vede
+        self.assertContains(response, "2 pacchi · 50,00 €")
         self.as_owner()
         response = self.client.get(f"{self.url}?centro={store('Milanofiori').pk}")
-        self.assertContains(response, "senza scontrino (Yakuza): 25,00 € (1)")
+        self.assertContains(response, "di cui Yakuza: 25,00 € (1)")
 
     def test_sale_of_a_registered_package_shows_in_the_closing_list_too(self):
         stock = create_package("2.350", make_batch("Lotto 1"))
-        self.client.post(reverse("inventory:sell", args=[stock.pk]), {"receipt": "on"})
+        self.client.post(reverse("inventory:sell", args=[stock.pk]), sale_data(stock))
         response = self.client.get(self.url)
         self.assertEqual([p.pk for p in response.context["entries"]], [stock.pk])
         self.assertFalse(response.context["entries"][0].deletable)  # ha foto e lotto: si gestisce dal dettaglio

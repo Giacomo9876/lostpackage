@@ -1,0 +1,2 @@
+{# Variazione rispetto al periodo di confronto: «▲ 12%». `pct` è None se non c'è confronto. #}
+{% if pct is not None %}<span class="delta-pct{% if pct > 0 %} is-up{% elif pct < 0 %} is-down{% endif %}">{% if pct > 0 %}▲{% elif pct < 0 %}▼{% else %}={% endif %} {{ pct|cut:"-" }}%</span>{% endif %}

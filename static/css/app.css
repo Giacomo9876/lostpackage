@@ -17,6 +17,7 @@
   --danger-bg: #B3261E;
   --danger-fg: #FFFFFF;
   --focus: #1F5FBF;
+  --good: #1B6E3A;
   --radius: 12px;
   --col: 720px;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
@@ -34,6 +35,7 @@
     --danger-bg: #FF8A80;
     --danger-fg: #2B0A07;
     --focus: #7FB2FF;
+    --good: #7BD79A;
   }
 }
 
@@ -183,6 +185,13 @@ input, select {
 }
 .readout-input input::placeholder { color: var(--on-panel); opacity: 0.3; }
 .readout-input span { color: #9DB0BE; font-size: 1.15rem; font-weight: 600; }
+/* Il secondo display (il prezzo) è più piccolo di quello del peso. */
+.readout-compact input { min-height: 56px; font-size: 1.75rem; }
+.link-btn {
+  padding: 4px 0; background: none; border: 0;
+  color: inherit; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px;
+  cursor: pointer;
+}
 
 .readout {
   display: flex; align-items: baseline; gap: 8px;
@@ -373,10 +382,10 @@ h2 { margin: 24px 0 10px; font-size: 1.1rem; font-weight: 800; letter-spacing: -
 
 /* Dashboard */
 
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
 .chip {
   display: inline-flex; align-items: center;
-  min-height: 44px; padding: 0 16px;
+  min-height: 44px; padding: 0 14px;
   background: var(--paper); border: 2px solid var(--line); border-radius: 999px;
   font-weight: 700; text-decoration: none;
 }
@@ -389,7 +398,7 @@ h2 { margin: 24px 0 10px; font-size: 1.1rem; font-weight: 800; letter-spacing: -
   border-left: 6px solid transparent;
 }
 .stat-label { color: var(--slate); font-size: 0.85rem; font-weight: 700; }
-.stat-value { font-size: 1.6rem; font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stat-value { font-size: clamp(1.15rem, 5.4vw, 1.6rem); white-space: nowrap; font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .stat-sub { color: var(--slate); font-size: 0.85rem; }
 .stat-dark { background: var(--panel); color: #F4F6F8; }
 .stat-dark .stat-label, .stat-dark .stat-sub { color: #C8D3DC; }
@@ -406,7 +415,7 @@ h2 { margin: 24px 0 10px; font-size: 1.1rem; font-weight: 800; letter-spacing: -
 .store-card:focus-visible { outline-offset: 0; }
 .store-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 1.15rem; }
 .store-city { color: var(--slate); font-size: 0.9rem; font-weight: 600; }
-.store-money { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.store-money { font-size: 1.75rem; white-space: nowrap; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .store-line { color: var(--slate); font-size: 0.9rem; }
 .store-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 
@@ -424,6 +433,28 @@ h2 { margin: 24px 0 10px; font-size: 1.1rem; font-weight: 800; letter-spacing: -
 .bar-day { height: 1.3em; color: var(--slate); font-size: 0.7rem; text-align: center; }
 .swatch { display: inline-block; width: 12px; height: 12px; margin-right: 4px; border-radius: 3px; vertical-align: -1px; }
 .swatch-yak { background: var(--tape); }
+
+/* Andamento: numeri del periodo, variazione e ripartizione dei pagamenti */
+
+.card h3 { margin: 18px 0 8px; font-size: 0.95rem; font-weight: 800; }
+.trend-line { margin: 4px 0 0; font-weight: 700; }
+.delta-pct { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.delta-pct.is-up { color: var(--good); }
+.delta-pct.is-down { color: var(--alert); }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 16px; margin: 12px 0 0; }
+.metrics div { display: grid; gap: 2px; align-content: start; }
+.metrics dt { color: var(--slate); font-size: 0.8rem; font-weight: 700; }
+.metrics dd { margin: 0; font-weight: 800; font-variant-numeric: tabular-nums; }
+.mix { display: flex; gap: 2px; height: 18px; margin: 4px 0 10px; border-radius: 6px; overflow: hidden; }
+.mix-seg { flex-grow: var(--n); flex-shrink: 1; flex-basis: 0; min-width: 3px; }
+.mix-cash { background: var(--ink); }
+.mix-card { background: var(--focus); }
+.mix-other { background: var(--slate); }
+.mix-yakuza { background: var(--tape); }
+.mix-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 6px 24px; margin: 0; padding: 0; list-style: none; font-size: 0.9rem; }
+.mix-legend li { display: grid; grid-template-columns: 16px 1fr auto 3.2em; align-items: baseline; gap: 0 6px; font-variant-numeric: tabular-nums; }
+.mix-legend .swatch { margin-right: 0; }
+.mix-pct { color: var(--slate); text-align: right; }
 
 .days { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .day {
@@ -450,6 +481,27 @@ h2 { margin: 24px 0 10px; font-size: 1.1rem; font-weight: 800; letter-spacing: -
 .check:has(input:checked) { border-color: var(--ink); }
 .price-preview { margin: 0; color: var(--slate); }
 .price-preview strong { color: var(--ink); font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+
+.pay-options { min-width: 0; margin: 0; padding: 0; border: 0; }
+.pay-options legend { margin-bottom: 6px; padding: 0; color: var(--slate); font-size: 0.9rem; font-weight: 600; }
+.pay-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.pay {
+  display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 12px;
+  min-height: 56px; padding: 6px 14px;
+  border: 2px solid var(--line); border-radius: var(--radius);
+  cursor: pointer;
+}
+.pay input[type="radio"] {
+  grid-row: 1 / span 2; width: 24px; height: 24px; min-height: 0; margin: 0; padding: 0;
+  accent-color: var(--ink);
+}
+.pay-name { font-weight: 800; line-height: 1.2; }
+.pay-sub { grid-column: 2; color: var(--slate); font-size: 0.75rem; line-height: 1.2; }
+.pay:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.pay:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+.pay-yakuza:has(input:checked) { background: var(--tape); color: var(--on-tape); }
+.pay-yakuza:has(input:checked) .pay-sub { color: var(--on-tape); }
+.has-error.pay-options .pay { border-color: var(--alert); }
 
 .count-pill {
   display: inline-block; min-width: 1.9em; padding: 0 8px; margin-left: 4px;

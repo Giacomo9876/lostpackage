@@ -7,7 +7,7 @@ from django.utils import timezone
 from PIL import Image
 
 from ..models import Batch, Package, Profile, ShopSettings
-from .helpers import TEMP_MEDIA, BaseCase, create_package, make_batch, make_image, make_user
+from .helpers import TEMP_MEDIA, BaseCase, create_package, make_batch, make_image, make_user, sale_data
 
 class AccessTests(TestCase):
     """Tutto richiede il login, tranne la pagina di accesso."""
@@ -547,25 +547,20 @@ class SaleTests(BaseCase):
         super().setUp()
         self.batch = make_batch(name="Lotto 1", expected_count=5)
 
-    def sell(self, package, price=None, receipt=True):
-        data = {"receipt": "on"} if receipt else {}
-        if price is not None:
-            data["sold_price"] = price
-        return self.client.post(reverse("inventory:sell", args=[package.pk]), data)
+    def sell(self, package, price=None, payment="cash"):
+        return self.client.post(reverse("inventory:sell", args=[package.pk]), sale_data(package, price, payment))
 
-    def test_manager_sees_the_computed_price_and_cannot_edit_it(self):
+    def test_the_price_is_prefilled_and_editable_for_managers_and_owners(self):
         package = create_package("2.350", self.batch)
-        response = self.client.get(reverse("inventory:sell", args=[package.pk]))
-        self.assertContains(response, "58,75 €")
-        self.assertContains(response, "2,350 kg × 25,00 € al kg")
-        self.assertNotIn("sold_price", response.context["form"].fields)
-
-    def test_owner_sees_the_price_prefilled_and_editable(self):
-        self.as_owner()
-        package = create_package("2.350", self.batch)
-        response = self.client.get(reverse("inventory:sell", args=[package.pk]))
-        self.assertContains(response, 'value="58,75"')
-        self.assertContains(response, "Calcolato: 58,75 € (2,350 kg × 25,00 € al kg)")
+        url = reverse("inventory:sell", args=[package.pk])
+        for who in ("manager", "owner"):
+            if who == "owner":
+                self.as_owner()
+            with self.subTest(who=who):
+                response = self.client.get(url)
+                self.assertContains(response, 'value="58,75"')
+                self.assertContains(response, "Calcolato: 58,75 € (2,350 kg × 25,00 € al kg)")
+                self.assertIn("sold_price", response.context["form"].fields)
 
     def test_sale_moves_the_package_to_history(self):
         package = create_package("2.350", self.batch)
@@ -574,7 +569,7 @@ class SaleTests(BaseCase):
         package.refresh_from_db()
         self.assertTrue(package.is_sold)
         self.assertEqual(package.sold_price, Decimal("58.75"))
-        self.assertTrue(package.receipt)
+        self.assertEqual(package.payment, Package.Payment.CASH)
         self.assertEqual(package.sold_by, self.user)
         self.assertLess((timezone.now() - package.sold_at).total_seconds(), 60)
         # Non è più in magazzino ma è nello storico.
@@ -591,17 +586,87 @@ class SaleTests(BaseCase):
         self.assertEqual(small.sold_price, Decimal("5.00"))
         self.assertEqual(premium.sold_price, Decimal("60.00"))
 
-    def test_a_manager_cannot_set_the_price_by_posting_it(self):
+    def test_a_manager_can_sell_at_a_different_price_and_the_listino_is_kept(self):
         package = create_package("2.000", self.batch)
-        self.sell(package, price="1")
+        response = self.sell(package, price="48")
+        followed = self.client.get(response["Location"])
         package.refresh_from_db()
-        self.assertEqual(package.sold_price, Decimal("50.00"))
+        self.assertEqual((package.sold_price, package.list_price), (Decimal("48.00"), Decimal("50.00")))
+        self.assertEqual(package.price_adjustment, Decimal("-2.00"))
+        self.assertContains(followed, "venduto a 48,00 € (listino 50,00 €)")
 
-    def test_sale_without_receipt_is_recorded(self):
+    def test_selling_at_the_computed_price_leaves_no_adjustment(self):
         package = create_package("2.000", self.batch)
-        self.sell(package, receipt=False)
+        self.sell(package)
         package.refresh_from_db()
-        self.assertFalse(package.receipt)
+        self.assertEqual((package.sold_price, package.list_price), (Decimal("50.00"), Decimal("50.00")))
+        self.assertIsNone(package.price_adjustment)
+
+    def test_the_listino_is_computed_by_the_server_not_taken_from_the_form(self):
+        package = create_package("2.000", self.batch)
+        self.client.post(
+            reverse("inventory:sell", args=[package.pk]), {**sale_data(package, "45"), "list_price": "45"}
+        )
+        package.refresh_from_db()
+        self.assertEqual((package.sold_price, package.list_price), (Decimal("45.00"), Decimal("50.00")))
+
+    def test_price_limits(self):
+        package = create_package("2.000", self.batch)
+        for raw in ("", "-1", "abc", "10000", "9999,999", "1234567,891"):
+            with self.subTest(raw=raw):
+                response = self.sell(package, raw)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("sold_price", response.context["form"].errors)
+        package.refresh_from_db()
+        self.assertFalse(package.is_sold)
+        self.assertEqual(self.sell(package, "9999,99").status_code, 302)
+
+    def test_the_sale_page_offers_the_four_payment_methods_with_cash_preselected(self):
+        package = create_package("2.000", self.batch)
+        response = self.client.get(reverse("inventory:sell", args=[package.pk]))
+        self.assertEqual([value for value, _ in response.context["form"].fields["payment"].choices], ["cash", "card", "other", "yakuza"])
+        self.assertContains(response, 'id="id_payment_0" required checked')
+        for label in ("Contanti", "Carta", "Altro", "Yakuza"):
+            self.assertContains(response, f'<span class="pay-name">{label}</span>')
+        self.assertNotContains(response, "Scontrino emesso")
+        self.assertNotContains(response, "senza scontrino")
+
+    def test_every_payment_method_can_be_recorded_at_sale(self):
+        for value, label in Package.Payment.choices:
+            with self.subTest(payment=value):
+                package = create_package("2.000", self.batch)
+                self.assertEqual(self.sell(package, payment=value).status_code, 302)
+                package.refresh_from_db()
+                self.assertEqual((package.payment, package.get_payment_display()), (value, label))
+                self.assertEqual(package.is_yakuza, value == "yakuza")
+                self.assertEqual(package.receipt, value != "yakuza")
+
+    def test_an_invalid_or_missing_payment_blocks_the_sale(self):
+        package = create_package("2.000", self.batch)
+        url = reverse("inventory:sell", args=[package.pk])
+        for payload in ({"sold_price": "50", "payment": "bitcoin"}, {"sold_price": "50"}):
+            with self.subTest(payload=payload):
+                response = self.client.post(url, payload)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("payment", response.context["form"].errors)
+        package.refresh_from_db()
+        self.assertFalse(package.is_sold)
+
+    def test_sale_with_yakuza_is_recorded_and_shown(self):
+        package = create_package("2.000", self.batch)
+        self.sell(package, payment="yakuza")
+        package.refresh_from_db()
+        self.assertEqual(package.payment, Package.Payment.YAKUZA)
+        self.assertContains(self.client.get(reverse("inventory:detail", args=[package.pk])), '<span class="tag tag-warn">Yakuza</span>')
+        self.assertContains(self.client.get(reverse("inventory:history")), "Yakuza")
+
+    def test_history_shows_the_payment_method_of_each_sale(self):
+        for value in ("cash", "card", "other"):
+            self.sell(create_package("2.000", self.batch), payment=value)
+        history = self.client.get(reverse("inventory:history"))
+        for label in ("Contanti", "Carta", "Altro"):
+            self.assertContains(history, f'<span class="tag">{label}</span>')
+        self.assertNotContains(history, "scontrino")
 
     def test_owner_can_edit_the_price_at_sale(self):
         self.as_owner()
@@ -611,17 +676,11 @@ class SaleTests(BaseCase):
         self.assertEqual(package.sold_price, Decimal("40.00"))
         self.assertEqual(package.sold_by, self.owner)
 
-    def test_free_sale_is_allowed_but_not_negative_or_empty(self):
-        self.as_owner()
+    def test_free_sale_is_allowed(self):
         package = create_package("2.000", self.batch)
-        for raw in ("", "-1", "abc", "1234567,891"):
-            with self.subTest(raw=raw):
-                response = self.sell(package, raw)
-                self.assertEqual(response.status_code, 200)
-                self.assertIn("sold_price", response.context["form"].errors)
-        package.refresh_from_db()
-        self.assertFalse(package.is_sold)
         self.assertEqual(self.sell(package, "0").status_code, 302)
+        package.refresh_from_db()
+        self.assertEqual((package.sold_price, package.list_price), (Decimal("0.00"), Decimal("50.00")))
 
     def test_photos_are_kept_after_sale(self):
         package = create_package("2.350", self.batch)
@@ -650,20 +709,21 @@ class SaleTests(BaseCase):
         history = self.client.get(reverse("inventory:history"), {"peso": "3", "tolleranza": "0"})
         self.assertEqual([p.pk for p in history.context["packages"]], [package.pk])
 
-    def test_owner_corrects_price_and_receipt_keeping_sale_date_and_seller(self):
+    def test_owner_corrects_price_and_payment_keeping_sale_date_and_seller(self):
         package = create_package("2.000", self.batch)
         self.sell(package)
         package.refresh_from_db()
         sold_at = package.sold_at
         self.as_owner()
 
-        response = self.sell(package, "45", receipt=False)
+        response = self.sell(package, "45", payment="yakuza")
         self.assertRedirects(response, reverse("inventory:detail", args=[package.pk]))
         package.refresh_from_db()
         self.assertEqual(package.sold_price, Decimal("45.00"))
-        self.assertFalse(package.receipt)
+        self.assertEqual(package.payment, Package.Payment.YAKUZA)
         self.assertEqual(package.sold_at, sold_at)
         self.assertEqual(package.sold_by, self.user)
+        self.assertEqual(package.list_price, Decimal("50.00"))  # la correzione non tocca il listino della vendita
 
     def test_manager_cannot_correct_a_sale(self):
         package = create_package("2.000", self.batch)
@@ -687,14 +747,15 @@ class SaleTests(BaseCase):
 
     def test_restore_puts_the_package_back_in_stock(self):
         package = create_package("2.350", self.batch)
-        self.sell(package, receipt=False)
+        self.sell(package, payment="yakuza")
         response = self.client.post(reverse("inventory:restore", args=[package.pk]))
         self.assertRedirects(response, reverse("inventory:detail", args=[package.pk]))
         package.refresh_from_db()
         self.assertIsNone(package.sold_at)
         self.assertIsNone(package.sold_price)
+        self.assertIsNone(package.list_price)
         self.assertIsNone(package.sold_by)
-        self.assertTrue(package.receipt)  # il «senza scontrino» non resta attaccato al pacco
+        self.assertEqual(package.payment, Package.Payment.CASH)  # il pagamento non resta attaccato al pacco rimesso in magazzino
         self.assertEqual(len(self.client.get(reverse("inventory:list")).context["packages"]), 1)
         self.assertEqual(len(self.client.get(reverse("inventory:history")).context["packages"]), 0)
 

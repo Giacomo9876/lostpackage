@@ -28,9 +28,17 @@
   </div>
   <div class="checks">
     <label class="check">{{ entry_form.premium }} <span>Pacco premium</span></label>
-    <label class="check">{{ entry_form.receipt }} <span>Scontrino emesso</span></label>
   </div>
-  <p class="price-preview" aria-live="polite">Prezzo: <strong data-price-preview>—</strong></p>
+  <div class="field{% if entry_form.price.errors %} has-error{% endif %}">
+    <label for="{{ entry_form.price.id_for_label }}">Prezzo</label>
+    <div class="readout-input readout-compact">{{ entry_form.price }}<span>€</span></div>
+    {% for error in entry_form.price.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    <p class="hint" aria-live="polite">
+      <span data-price-hint>Si calcola dal peso. Per fare uno sconto scrivi qui il prezzo finale.</span>
+      <button class="link-btn" type="button" data-price-reset hidden>Rimetti <span data-list-price></span></button>
+    </p>
+  </div>
+  {% include "inventory/_payment.html" with field=entry_form.payment %}
   <button class="btn btn-primary" type="submit">Aggiungi pacco</button>
 </form>
 
@@ -43,7 +51,8 @@
           <span class="weight">{{ entry.weight_kg|floatformat:3 }}<small>kg</small></span>
           <span class="entry-tags">
             {% if entry.premium %}<span class="tag tag-exact">Premium</span>{% endif %}
-            {% if not entry.receipt %}<span class="tag tag-warn">No scontrino</span>{% endif %}
+            <span class="tag{% if entry.is_yakuza %} tag-warn{% endif %}">{{ entry.get_payment_display }}</span>
+            {% if entry.price_adjustment %}<span class="tag">Listino {{ entry.list_price|floatformat:2 }} €</span>{% endif %}
           </span>
           <span class="price">{{ entry.sold_price|floatformat:2 }} €</span>
         </a>
@@ -57,8 +66,8 @@
     {% endfor %}
   </ul>
   <p class="totals">
-    <strong>{{ count }} pacc{{ count|pluralize:"o,hi" }} · {{ revenue|floatformat:2 }} €</strong>
-    {% if show_private and no_receipt_count %}<br>di cui senza scontrino (Yakuza): {{ no_receipt|floatformat:2 }} € ({{ no_receipt_count }})
+    <strong>{{ count }} pacc{{ count|pluralize:"o,hi" }} · {{ revenue|floatformat:"2g" }} €</strong>
+    {% if show_private and yakuza_count %}<br>di cui Yakuza: {{ yakuza|floatformat:"2g" }} € ({{ yakuza_count }})
     {% endif %}
   </p>
 {% else %}

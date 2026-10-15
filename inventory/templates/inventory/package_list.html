@@ -33,10 +33,10 @@
     Controlla i campi di ricerca.
   {% elif history %}
     {{ total_count }} pacc{{ total_count|pluralize:"o,hi" }} vendut{{ total_count|pluralize:"o,i" }},
-    {{ total_weight|floatformat:3 }} kg, incasso {{ revenue|floatformat:2 }} €
+    {{ total_weight|floatformat:3 }} kg, incasso {{ revenue|floatformat:"2g" }} €
   {% else %}
     {{ total_count }} pacc{{ total_count|pluralize:"o,hi" }}{% if filtered %} trovati{% else %} in magazzino{% endif %},
-    {{ total_weight|floatformat:3 }} kg, valore {{ stock_value|floatformat:2 }} €
+    {{ total_weight|floatformat:3 }} kg, valore {{ stock_value|floatformat:"2g" }} €
   {% endif %}
 </p>
 
@@ -68,9 +68,10 @@
             <span class="parcel-meta">
               <span class="tag">#{{ package.pk }}</span>
               {% if package.premium %}<span class="tag tag-exact">Premium</span>{% endif %}
-              {% if history and not package.receipt %}<span class="tag tag-warn">Senza scontrino</span>{% endif %}
+              {% if history %}<span class="tag{% if package.is_yakuza %} tag-warn{% endif %}">{{ package.get_payment_display }}</span>{% endif %}
               {% if history %}
                 <span class="price">{{ package.sold_price|floatformat:2 }} €</span>
+                {% if package.price_adjustment %}<span class="tag">Listino {{ package.list_price|floatformat:2 }} €</span>{% endif %}
               {% else %}
                 <span class="price">{{ package.price|floatformat:2 }} €</span>
               {% endif %}

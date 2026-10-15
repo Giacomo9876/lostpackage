@@ -11,7 +11,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from PIL import Image
 
-from ..models import Batch, DayClose, Package, Profile, Store
+from ..models import Batch, DayClose, Package, Profile, ShopSettings, Store
 from ..stats import start_of_day
 
 TEMP_MEDIA = tempfile.mkdtemp(prefix="pacchi-test-media-")
@@ -68,7 +68,7 @@ def create_package(weight, batch=None, notes="", sold_price=None, sold_at=None, 
     return package
 
 
-def sell_on(day, weight, price, store_name="Milanofiori", receipt=True, premium=False):
+def sell_on(day, weight, price, store_name="Milanofiori", payment="cash", premium=False, list_price=None):
     """Pacco già venduto in un giorno preciso (a mezzogiorno, ora locale)."""
     return create_package(
         weight,
@@ -76,9 +76,17 @@ def sell_on(day, weight, price, store_name="Milanofiori", receipt=True, premium=
         photo=False,
         sold_price=price,
         sold_at=start_of_day(day) + timedelta(hours=12),
-        receipt=receipt,
         premium=premium,
+        list_price=None if list_price is None else Decimal(str(list_price)),
+        payment=payment,
     )
+
+
+def sale_data(package, price=None, payment="cash"):
+    """Ciò che invia il browser vendendo un pacco dal magazzino: il prezzo arriva già precompilato dal listino."""
+    if price is None:
+        price = str(package.price_with(ShopSettings.load())).replace(".", ",")
+    return {"sold_price": str(price), "payment": payment}
 
 
 def close_day(day, total, store_name="Milanofiori"):

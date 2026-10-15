@@ -1,0 +1,27 @@
+{# L'andamento nel periodo. Serve: totals, insights, period, show_private, compare_label, revenue_change, count_change. #}
+<section class="card" aria-labelledby="trend-title">
+  <h2 id="trend-title">Andamento · {{ period.label|lower }}</h2>
+  {% if totals.count %}
+    {% if compare_label %}
+      <p class="trend-line">
+        Venduto {% include "inventory/_delta.html" with pct=revenue_change %}{% if revenue_change is None %}<span class="hint-inline">nessun dato prima</span>{% endif %}
+        · pacchi {% include "inventory/_delta.html" with pct=count_change %}{% if count_change is None %}<span class="hint-inline">nessun dato prima</span>{% endif %}
+        <span class="hint-inline">{{ compare_label }}</span>
+      </p>
+    {% endif %}
+    <dl class="metrics">
+      <div><dt>Media al giorno</dt><dd>{{ insights.daily_avg|floatformat:"2g" }} €</dd></div>
+      <div><dt>Giorno migliore</dt><dd>{{ insights.best_day|date:"D j F"|lower }} · {{ insights.best_revenue|floatformat:"2g" }} €</dd></div>
+      <div><dt>Per pacco</dt><dd>{{ totals.avg_price|floatformat:"2g" }} € · {{ totals.avg_weight|floatformat:"2g" }} kg</dd></div>
+      <div><dt>Prezzo medio al kg</dt><dd>{{ totals.price_per_kg|floatformat:"2g" }} €</dd></div>
+      <div><dt>Pacchi premium</dt><dd>{{ totals.premium_pct }}%</dd></div>
+      <div><dt>Giorni con vendite</dt><dd>{{ insights.active_days }}{% if period.days %} su {{ period.days }}{% endif %}</dd></div>
+    </dl>
+    {% if show_private %}
+      <h3>Pagamenti</h3>
+      {% include "inventory/_mix.html" %}
+    {% endif %}
+  {% else %}
+    <p class="hint">Nessuna vendita nel periodo scelto.</p>
+  {% endif %}
+</section>
