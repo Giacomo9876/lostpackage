@@ -74,21 +74,20 @@
   <div class="empty"><p>Nessun pacco inserito {% if is_today %}oggi{% else %}in questa giornata{% endif %}.</p></div>
 {% endif %}
 
-<form method="post" class="stack card" data-submit-once>
-  {% csrf_token %}
-  <input type="hidden" name="azione" value="chiusura">
-  <h2>Cassa</h2>
-  <div class="field{% if close_form.receipts_total.errors %} has-error{% endif %}">
-    <label for="{{ close_form.receipts_total.id_for_label }}">{{ close_form.receipts_total.label }}</label>
-    <div class="readout-input">{{ close_form.receipts_total }}<span>€</span></div>
-    {% for error in close_form.receipts_total.errors %}<p class="error">{{ error }}</p>{% endfor %}
-    <p class="hint">Il totale degli scontrini della giornata, come lo dà il registratore di cassa.</p>
-  </div>
+<section class="card cassa" aria-labelledby="cassa-title">
+  <h2 id="cassa-title">Cassa</h2>
   {% if close %}
-    <p class="hint">Giornata chiusa{% if close.closed_by %} da {{ close.closed_by.get_username }}{% endif %} il {{ close.updated_at|date:"j F, H:i"|lower }}. Puoi correggere il totale.</p>
+    <p class="cassa-total">
+      <strong>{{ close.receipts_total|floatformat:"2g" }} €</strong> di scontrini
+      {% if show_private and close.yakuza_cash %}<br>più contanti Yakuza {{ close.yakuza_cash|floatformat:"2g" }} €{% endif %}
+    </p>
+    <p class="hint">Giornata chiusa{% if close.closed_by %} da {{ close.closed_by.get_username }}{% endif %} il {{ close.updated_at|date:"j F, H:i"|lower }}.</p>
+    <a class="btn btn-secondary" href="{{ close_url }}">Modifica scontrini</a>
+  {% else %}
+    <p class="hint">Il totale degli scontrini di questa giornata non c'è ancora: scrivilo, oppure fotografa lo scontrino di chiusura.</p>
+    <a class="btn btn-primary" href="{{ close_url }}">Chiudi la giornata</a>
   {% endif %}
-  <button class="btn btn-primary" type="submit">{% if close %}Aggiorna la chiusura{% else %}Chiudi la giornata{% endif %}</button>
-</form>
+</section>
 {% endblock %}
 
 {% block scripts %}

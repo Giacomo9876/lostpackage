@@ -151,6 +151,11 @@ MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
 FILE_UPLOAD_PERMISSIONS = 0o640
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "15"))
 
+# Lettura automatica del totale dalla foto dello scontrino (facoltativa, serve Tesseract; su
+# PythonAnywhere c'è già). Con OCR_ENABLED=0 si spegne; TESSERACT_CMD è il percorso del programma.
+OCR_ENABLED = os.environ.get("OCR_ENABLED", "1") == "1"
+TESSERACT_CMD = os.environ.get("TESSERACT_CMD", "tesseract")
+
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},

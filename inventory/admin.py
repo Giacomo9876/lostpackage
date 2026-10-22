@@ -67,6 +67,9 @@ class BatchAdmin(admin.ModelAdmin):
 
 @admin.register(DayClose)
 class DayCloseAdmin(admin.ModelAdmin):
-    list_display = ("date", "store", "receipts_total", "closed_by", "updated_at")
+    """Le foto degli scontrini si caricano solo dall'app: devono passare dall'elaborazione in images.py."""
+
+    list_display = ("date", "store", "receipts_total", "yakuza_cash", "closed_by", "updated_at")
     list_filter = ("store",)
     date_hierarchy = "date"
+    exclude = ("photo", "detected_total")

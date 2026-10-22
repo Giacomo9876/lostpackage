@@ -136,7 +136,7 @@ class ManagerIsolationTests(ScopeCase):
         self.assertEqual(Package.objects.order_by("-pk").first().store, store("Milanofiori"))
         response = self.client.post(f"{reverse('inventory:batch_create')}?centro={other}", {"name": "Nuovo"})
         self.assertEqual(Batch.objects.get(name="Nuovo").store, store("Milanofiori"))
-        self.client.post(f"{reverse('inventory:closing')}?centro={other}", {"azione": "chiusura", "receipts_total": "10"})
+        self.client.post(f"{reverse('inventory:close_day')}?centro={other}", {"receipts_total": "10"})
         self.assertEqual(DayClose.objects.get().store, store("Milanofiori"))
 
     def test_managers_cannot_see_or_change_prices(self):

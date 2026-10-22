@@ -2,22 +2,24 @@ from datetime import date, timedelta
 from decimal import Decimal
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages
-from django.core.exceptions import PermissionDenied
-from django.db import IntegrityError, transaction
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, DecimalField, F, Q, Sum, Value
 from django.db.models.functions import Abs
-from django.http import FileResponse, Http404, HttpResponseRedirect
+from django.http import FileResponse, Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import date_format, number_format
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
-from . import stats
-from .forms import BatchForm, ClosingEntryForm, CloseForm, PackageForm, PriceForm, SaleForm, SearchForm
-from .models import Batch, DayClose, Package, ShopSettings
+from . import averages, ocr, stats
+from .forms import BatchForm, CloseDayForm, ClosingEntryForm, PackageForm, PriceForm, SaleForm, SearchForm
+from .images import process_receipt
+from .models import Batch, Package, ShopSettings
 
 
 def kg(value):
@@ -79,6 +81,23 @@ class StoreChoiceMixin:
         if self.request.scope.is_owner:
             params["centro"] = self.store.pk
         return f"{url}?{urlencode(params)}" if params else url
+
+
+class DayMixin:
+    """La giornata su cui si lavora: ?data=AAAA-MM-GG, oggi se manca o se non si può toccare.
+
+    Lo store manager può lavorare su oggi e ieri; il titolare su qualunque giorno passato.
+    """
+
+    def get_day(self):
+        today = timezone.localdate()
+        try:
+            day = date.fromisoformat(self.request.GET.get("data", ""))
+        except ValueError:
+            return today
+        if day > today or not self.request.scope.can_edit_day(day):
+            return today
+        return day
 
 
 # --- Dashboard ---------------------------------------------------------------------
@@ -191,21 +210,11 @@ def _store_dashboard(request, store):
 # --- Chiusura di giornata ----------------------------------------------------------
 
 
-class ClosingView(StoreChoiceMixin, TemplateView):
+class ClosingView(DayMixin, StoreChoiceMixin, TemplateView):
     """Fine giornata: i pacchi venduti (peso, premium, scontrino) e il totale degli scontrini in cassa."""
 
     template_name = "inventory/closing.html"
     choose_title = "Chiusura di giornata: scegli il centro"
-
-    def get_day(self):
-        today = timezone.localdate()
-        try:
-            day = date.fromisoformat(self.request.GET.get("data", ""))
-        except ValueError:
-            return today
-        if day > today or not self.request.scope.can_edit_day(day):
-            return today
-        return day
 
     def day_packages(self, day):
         period = stats.Period(key="giorno", label="", start=day, end=day)
@@ -233,6 +242,8 @@ class ClosingView(StoreChoiceMixin, TemplateView):
             yakuza_count=Count("id", filter=yakuza),
         )
         close = self.request.scope.closes().filter(store=self.store, date=day).first()
+        if close and not self.request.scope.is_owner:
+            close.yakuza_cash = stats.ZERO  # solo in memoria: i manager non vedono i contanti Yakuza
         context.update(
             store=self.store,
             day=day,
@@ -246,11 +257,9 @@ class ClosingView(StoreChoiceMixin, TemplateView):
             yakuza=totals["yakuza"] or stats.ZERO,
             yakuza_count=totals["yakuza_count"],
             close=close,
+            close_url=self.store_url("close_day", **({"data": day.isoformat()} if day != today else {})),
             rules=self.price_rules(ShopSettings.load()),
             entry_form=kwargs.get("entry_form") or ClosingEntryForm(initial={"payment": self.last_payment()}),
-            close_form=kwargs.get("close_form") or CloseForm(
-                initial={"receipts_total": close.receipts_total} if close else None
-            ),
             show_private=self.request.scope.is_owner,
         )
         return context
@@ -286,11 +295,6 @@ class ClosingView(StoreChoiceMixin, TemplateView):
             if form.is_valid():
                 return self.add_entry(form, day)
             return self.render_to_response(self.get_context_data(entry_form=form))
-        if action == "chiusura":
-            form = CloseForm(request.POST)
-            if form.is_valid():
-                return self.close_day(form, day)
-            return self.render_to_response(self.get_context_data(close_form=form))
         return HttpResponseRedirect(self.page_url(day))
 
     def add_entry(self, form, day):
@@ -316,19 +320,6 @@ class ClosingView(StoreChoiceMixin, TemplateView):
         messages.success(self.request, text + ".")
         return HttpResponseRedirect(self.page_url(day))
 
-    def close_day(self, form, day):
-        total = form.cleaned_data["receipts_total"]
-        values = {"receipts_total": total, "closed_by": self.request.user}
-        try:
-            with transaction.atomic():
-                DayClose.objects.update_or_create(store=self.store, date=day, defaults=values)
-        except IntegrityError:
-            # Due invii quasi insieme: la riga esiste ormai, basta aggiornarla.
-            DayClose.objects.filter(store=self.store, date=day).update(**values)
-        label = date_format(day, "j F")
-        messages.success(self.request, f"Giornata del {label} chiusa: scontrini battuti {euro(total)} €.")
-        return HttpResponseRedirect(self.page_url(day))
-
 
 @require_POST
 def closing_entry_delete(request, pk):
@@ -347,6 +338,181 @@ def closing_entry_delete(request, pk):
         params["data"] = day.isoformat()
     url = reverse("inventory:closing")
     return redirect(f"{url}?{urlencode(params)}" if params else url)
+
+
+# --- Scontrini e chiusure ----------------------------------------------------------
+
+
+class ReceiptsView(TemplateView):
+    """Le chiusure di giornata e le tre medie: infrasettimanale, settimanale, fine settimana.
+
+    Il titolare vede tutti i centri (a confronto) o ne sceglie uno con ?centro=; lo store manager
+    il proprio. Ai manager i contanti Yakuza non arrivano nemmeno ai calcoli: ogni cifra è solo scontrini.
+    """
+
+    template_name = "inventory/receipts.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        scope = self.request.scope
+        today = timezone.localdate()
+        period = averages.get_period(self.request.GET.get("periodo"), today=today)
+        store = scope.resolve_store(self.request.GET.get("centro"))  # None = tutti i centri (solo titolari)
+        closes = scope.closes()
+        if store is not None:
+            closes = closes.filter(store=store)
+        rows = averages.closing_rows(closes, period)
+        if not scope.is_owner:
+            rows = [(store_id, day, receipts, stats.ZERO) for store_id, day, receipts, _ in rows]
+
+        average = averages.compute(rows, period, today)  # il centro scelto, o tutti i centri insieme
+        by_store = None
+        if store is None and scope.is_owner:
+            computed = averages.compute_by_store(rows, period, today)
+            by_store = [(item, computed.get(item.pk) or averages.Averages()) for item in scope.stores()]
+
+        listed = list(
+            stats.closes_in(closes, period).select_related("store").order_by("-date", "store__name")[: averages.LIST_LIMIT + 1]
+        )
+        context.update(
+            today=today,
+            period=period,
+            periods=averages.PERIODS,
+            store=store,
+            stores=scope.stores(),
+            average=average,
+            by_store=by_store,
+            closes=self.with_links(listed[: averages.LIST_LIMIT], scope),
+            more=len(listed) > averages.LIST_LIMIT,
+            list_limit=averages.LIST_LIMIT,
+            show_private=scope.is_owner,
+            add_url=reverse("inventory:close_day") + (f"?centro={store.pk}" if scope.is_owner and store else ""),
+        )
+        return context
+
+    @staticmethod
+    def with_links(closes, scope):
+        for close in closes:
+            if not scope.is_owner:
+                close.yakuza_cash = stats.ZERO  # solo in memoria: i manager non vedono i contanti Yakuza
+            if scope.can_edit_day(close.date):
+                params = {"data": close.date.isoformat()}
+                if scope.is_owner:
+                    params["centro"] = close.store_id
+                close.edit_url = f"{reverse('inventory:close_day')}?{urlencode(params)}"
+            else:
+                close.edit_url = None
+        return closes
+
+
+class CloseDayView(DayMixin, StoreChoiceMixin, TemplateView):
+    """Aggiunge o corregge la chiusura di una giornata: importo scritto o letto dalla foto, contanti Yakuza."""
+
+    template_name = "inventory/close_day.html"
+    choose_title = "Scontrini: scegli il centro"
+
+    def current(self, day):
+        return self.request.scope.closes().filter(store=self.store, date=day).first()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        day = self.get_day()
+        today = timezone.localdate()
+        close = self.current(day)
+        form = kwargs.get("form")
+        if form is None:
+            initial = {}
+            if close:
+                initial = {"receipts_total": close.receipts_total, "yakuza_cash": close.yakuza_cash or None}
+            form = CloseDayForm(user=self.request.user, initial=initial)
+        context.update(
+            store=self.store,
+            day=day,
+            is_today=day == today,
+            is_yesterday=day == today - timedelta(days=1),
+            yesterday=today - timedelta(days=1),
+            today_iso=today.isoformat(),
+            close=close,
+            form=form,
+            ocr_available=ocr.available(),
+            back_url=self.store_url("receipts"),
+        )
+        return context
+
+    def post(self, request, *args, **kwargs):
+        day = self.get_day()
+        form = CloseDayForm(request.POST, request.FILES, user=request.user)
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(form=form))
+        close = form.save(self.store, day)
+        label = date_format(day, "j F")
+        if form.filled_from_photo:
+            messages.success(
+                request,
+                f"Giornata del {label}: importo letto dalla foto, {euro(close.receipts_total)} €. "
+                "Controllalo: se non è giusto, apri la giornata e correggilo.",
+            )
+        else:
+            text = f"Giornata del {label} salvata: scontrini {euro(close.receipts_total)} €"
+            if close.yakuza_cash:
+                text += f" e contanti Yakuza {euro(close.yakuza_cash)} €"
+            messages.success(request, text + ".")
+        return HttpResponseRedirect(self.store_url("receipts"))
+
+
+@require_POST
+def close_delete(request, pk):
+    """Toglie una chiusura inserita per errore (sul giorno sbagliato, per esempio)."""
+    close = get_object_or_404(request.scope.closes(), pk=pk)
+    if not request.scope.can_edit_day(close.date):
+        raise PermissionDenied
+    store_id, day = close.store_id, close.date
+    close.delete()
+    messages.success(request, f"Chiusura del {date_format(day, 'j F')} eliminata.")
+    url = reverse("inventory:receipts")
+    return redirect(f"{url}?centro={store_id}" if request.scope.is_owner else url)
+
+
+@require_GET
+def receipt_photo(request, pk):
+    """Foto dello scontrino di chiusura: solo a chi può vedere quella chiusura (il middleware blocca gli anonimi)."""
+    close = get_object_or_404(request.scope.closes().only("photo"), pk=pk)
+    if not close.photo:
+        raise Http404
+    try:
+        handle = close.photo.open("rb")
+    except FileNotFoundError:
+        raise Http404
+    response = FileResponse(handle, content_type="image/jpeg")
+    response["Cache-Control"] = "private, max-age=86400"
+    return response
+
+
+@never_cache
+@require_POST
+def receipt_read(request):
+    """Legge l'importo dalla foto mentre la si sceglie, così chi chiude lo vede prima di salvare."""
+    upload = request.FILES.get("photo")
+    if upload is None:
+        return JsonResponse({"error": "Nessuna foto."}, status=400)
+    if upload.size > settings.MAX_UPLOAD_MB * 1024 * 1024:
+        return JsonResponse({"error": f"La foto supera {settings.MAX_UPLOAD_MB} MB."}, status=400)
+    try:
+        receipt = process_receipt(upload)
+    except ValidationError as error:
+        return JsonResponse({"error": error.messages[0]}, status=400)
+    if not ocr.available():
+        return JsonResponse({"available": False})
+    data = receipt.read()
+    reading = ocr.read_total(data)
+    return JsonResponse(
+        {
+            "available": True,
+            "amount": euro(reading.amount) if reading else None,
+            "line": reading.line if reading else "",
+            "token": ocr.sign_reading(request.user.pk, data, reading),
+        }
+    )
 
 
 # --- Magazzino e storico -----------------------------------------------------------

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Scontrini{% endblock %}
+
+{% block content %}
+<h1>Scontrini</h1>
+<p class="sub"><strong>{% if store %}{{ store.label }}{% else %}Tutti i centri{% endif %}</strong></p>
+
+<div class="actions receipts-add">
+  <a class="btn btn-primary" href="{{ add_url }}">Aggiungi scontrini di una giornata</a>
+</div>
+
+{% if show_private and stores|length > 1 %}
+  <nav class="chips" aria-label="Centro">
+    <a class="chip" href="{% querystring centro=None %}"{% if not store %} aria-current="true"{% endif %}>Tutti i centri</a>
+    {% for item in stores %}
+      <a class="chip" href="{% querystring centro=item.pk %}"{% if store.pk == item.pk %} aria-current="true"{% endif %}>{{ item.name }}</a>
+    {% endfor %}
+  </nav>
+{% endif %}
+
+{% include "inventory/_period.html" %}
+
+{% if average.has_data %}
+  {% include "inventory/_averages.html" %}
+  <p class="fine-print">
+    Medie calcolate sulle giornate con una chiusura{% if show_private %} (scontrini più contanti Yakuza){% endif %}:
+    un giorno senza chiusura non conta come zero. La settimana intera è da lunedì a domenica, già finita e tutta dentro al periodo.
+  </p>
+{% else %}
+  <div class="empty">
+    <p>Nessuna chiusura in questo periodo. Aggiungi gli scontrini di una giornata e qui compaiono le tre medie.</p>
+  </div>
+{% endif %}
+
+{% if by_store %}
+  <h2>Per centro</h2>
+  <ul class="avg-stores">
+    {% for item, avg in by_store %}
+      <li>
+        <a class="avg-store" href="{% querystring centro=item.pk %}">
+          <span class="store-head"><strong>{{ item.name }}</strong><span class="store-city">{{ item.city }}</span></span>
+          {% if avg.has_data %}
+            <span class="avg-trio">
+              <span><span class="avg-trio-label">Lun – ven</span><b>{{ avg.weekdays.avg_total|floatformat:"2g"|default:"–" }}{% if avg.weekdays.days %} €{% endif %}</b></span>
+              <span><span class="avg-trio-label">Settimana</span><b>{{ avg.all_days.avg_total|floatformat:"2g" }} €</b></span>
+              <span><span class="avg-trio-label">Sab – dom</span><b>{{ avg.weekend.avg_total|floatformat:"2g"|default:"–" }}{% if avg.weekend.days %} €{% endif %}</b></span>
+            </span>
+            <span class="store-line">al giorno · {{ avg.all_days.days }} giornat{{ avg.all_days.days|pluralize:"a,e" }}{% if avg.weeks %} · una settimana intera {{ avg.week_total|floatformat:"2g" }} €{% endif %}</span>
+          {% else %}
+            <span class="store-line">Nessuna chiusura nel periodo.</span>
+          {% endif %}
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+<h2>Giornate {% if closes %}<span class="count-pill">{{ closes|length }}{% if more %}+{% endif %}</span>{% endif %}</h2>
+{% if closes %}
+  <ul class="days">
+    {% for close in closes %}
+      <li class="day">
+        <span class="day-date">{{ close.date|date:"D j F"|lower }}{% if not store %} · {{ close.store.name }}{% endif %}</span>
+        <span class="day-money">{{ close.day_total|floatformat:"2g" }} €</span>
+        <span class="day-meta">
+          {% if show_private and close.yakuza_cash %}scontrini {{ close.receipts_total|floatformat:"2g" }} € + Yakuza {{ close.yakuza_cash|floatformat:"2g" }} €{% else %}scontrini{% endif %}
+        </span>
+        <span class="day-tags">
+          {% if close.reading == "read" %}<span class="tag tag-exact">Letto dalla foto</span>
+          {% elif close.reading == "corrected" %}<span class="tag tag-sold">Corretto a mano · letto {{ close.detected_total|floatformat:"2g" }} €</span>
+          {% else %}<span class="tag">Scritto a mano</span>{% endif %}
+          {% if close.has_photo %}<a class="tag-link" href="{% url 'inventory:receipt_photo' close.pk %}?v={{ close.updated_at|date:'U' }}" target="_blank" rel="noopener">Foto</a>{% endif %}
+          {% if close.edit_url %}<a class="tag-link" href="{{ close.edit_url }}">Modifica</a>{% endif %}
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+  {% if more %}
+    <p class="fine-print">Sono mostrate le ultime {{ list_limit }} giornate: per vedere le altre scegli un periodo più corto.</p>
+  {% endif %}
+{% else %}
+  <p class="hint">Nessuna giornata chiusa nel periodo scelto.</p>
+{% endif %}
+{% endblock %}

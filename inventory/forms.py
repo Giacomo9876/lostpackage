@@ -4,9 +4,11 @@ from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
+from django.db import IntegrityError, transaction
 
-from .images import process_upload
-from .models import Batch, Package, ShopSettings
+from . import ocr
+from .images import process_receipt, process_upload
+from .models import Batch, DayClose, Package, ShopSettings
 
 TOLERANCE_CHOICES = [
     (0, "Peso esatto"),
@@ -197,18 +199,124 @@ class ClosingEntryForm(forms.Form):
         return check_sale_price(self.cleaned_data["price"])
 
 
-class CloseForm(forms.Form):
-    """Totale degli scontrini battuti in cassa nella giornata."""
+MAX_CLOSE_AMOUNT = Decimal("9999999.99")
+
+
+class CloseDayForm(forms.Form):
+    """La chiusura di una giornata: scontrini battuti (scritti o letti dalla foto) e contanti Yakuza.
+
+    L'importo degli scontrini si può scrivere, oppure lasciare vuoto con la foto dello scontrino: allora
+    lo si legge dalla foto (se la lettura è disponibile). Quello che resta salvato è sempre l'importo
+    confermato da chi chiude; `detected_total` conserva ciò che era stato letto, per vedere le correzioni.
+    """
 
     receipts_total = forms.DecimalField(
-        label="Totale scontrini battuti in cassa",
+        label="Totale degli scontrini (€)",
+        required=False,
         min_value=Decimal("0"),
-        max_value=Decimal("9999999.99"),
+        max_value=MAX_CLOSE_AMOUNT,
         max_digits=10,
         decimal_places=2,
         localize=True,
         widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
     )
+    yakuza_cash = forms.DecimalField(
+        label="Contanti Yakuza (€, facoltativi)",
+        required=False,
+        min_value=Decimal("0"),
+        max_value=MAX_CLOSE_AMOUNT,
+        max_digits=10,
+        decimal_places=2,
+        localize=True,
+        help_text="Contanti incassati senza scontrino, in più rispetto agli scontrini.",
+        widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
+    )
+    photo = forms.FileField(
+        label="Foto dello scontrino (facoltativa)",
+        required=False,
+        # "capture" apre direttamente la fotocamera posteriore sul telefono.
+        widget=forms.FileInput(attrs={"accept": "image/*", "capture": "environment"}),
+    )
+    remove_photo = forms.BooleanField(label="Togli la foto", required=False)
+    reading_token = forms.CharField(required=False, widget=forms.HiddenInput)
+
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self._receipt = None  # la foto nuova, già ricodificata (ContentFile JPEG)
+        self.detected = None  # importo letto dalla nuova foto
+        self.filled_from_photo = False  # l'importo è stato preso dalla foto perché non era scritto
+
+    def clean_photo(self):
+        photo = self.cleaned_data.get("photo")
+        if isinstance(photo, UploadedFile):
+            limit = settings.MAX_UPLOAD_MB
+            if photo.size > limit * 1024 * 1024:
+                raise ValidationError(f"La foto supera {limit} MB. Riducila o scattala di nuovo.")
+            self._receipt = process_receipt(photo)
+        return photo
+
+    def _reading(self, data, token):
+        """Cosa dice la foto: dal gettone di una lettura già fatta su questa stessa foto, o leggendola ora."""
+        if token:
+            valid, reading = ocr.verify_reading(token, self.user.pk, data)
+            if valid:
+                return reading
+        return ocr.read_total(data)
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.errors:
+            return cleaned
+        if self._receipt is not None:
+            data = self._receipt.read()
+            self._receipt.seek(0)
+            reading = self._reading(data, cleaned.get("reading_token"))
+            self.detected = reading.amount if reading else None
+            if cleaned.get("receipts_total") is None and reading:
+                cleaned["receipts_total"] = reading.amount
+                self.filled_from_photo = True
+        if cleaned.get("receipts_total") is None:
+            if self._receipt is not None and ocr.available():
+                message = "Non riesco a leggere l'importo dalla foto: scrivilo a mano."
+            else:
+                message = "Scrivi il totale degli scontrini."
+            self.add_error("receipts_total", message)
+        cleaned["yakuza_cash"] = cleaned.get("yakuza_cash") or Decimal("0.00")
+        return cleaned
+
+    def save(self, store, day):
+        """Salva (o aggiorna) la chiusura di quel centro e giorno; ritorna l'oggetto DayClose."""
+        data = self.cleaned_data
+        for attempt in (1, 2):
+            close = DayClose.objects.filter(store=store, date=day).first() or DayClose(store=store, date=day)
+            old = [(close.photo.storage, close.photo.name)] if close.photo else []
+            close.receipts_total = data["receipts_total"]
+            close.yakuza_cash = data["yakuza_cash"]
+            close.closed_by = self.user
+            replaced = []
+            if self._receipt is not None:
+                close.photo.save("scontrino.jpg", self._receipt, save=False)
+                close.detected_total = self.detected
+                replaced = old
+            elif data["remove_photo"] and close.photo:
+                close.photo = ""
+                close.detected_total = None
+                replaced = old
+            try:
+                with transaction.atomic():
+                    close.save()
+            except IntegrityError:
+                # Due invii quasi insieme: l'altro ha già creato la riga. Il file nuovo non serve più; si riprova una volta.
+                if close.photo and self._receipt is not None:
+                    close.photo.storage.delete(close.photo.name)
+                    self._receipt.seek(0)
+                if attempt == 2:
+                    raise
+                continue
+            for storage, name in replaced:
+                transaction.on_commit(lambda storage=storage, name=name: storage.delete(name))
+            return close
 
 
 class PriceForm(forms.ModelForm):

@@ -1,0 +1,24 @@
+{# Una delle tre medie. Serve: title, note, bucket (Bucket); con week=True anche l'incasso di una settimana intera da `average`. #}
+<div class="avg">
+  <span class="avg-title">{{ title }}</span>
+  <span class="avg-note">{{ note }}</span>
+  {% if bucket.days %}
+    <span class="avg-value">{{ bucket.avg_total|floatformat:"2g" }} €</span>
+    <span class="avg-sub">al giorno · {{ bucket.days }} giornat{{ bucket.days|pluralize:"a,e" }}</span>
+    {% if show_private and bucket.yakuza %}
+      <span class="avg-sub">scontrini {{ bucket.avg_receipts|floatformat:"2g" }} € + Yakuza {{ bucket.avg_yakuza|floatformat:"2g" }} €</span>
+    {% endif %}
+    {% if week %}
+      {% if average.weeks %}
+        <span class="avg-week">Una settimana intera: <b>{{ average.week_total|floatformat:"2g" }} €</b>
+          <span class="avg-sub">media di {{ average.weeks }} settiman{{ average.weeks|pluralize:"a,e" }}{% if show_private and average.week_yakuza %} (Yakuza {{ average.week_yakuza|floatformat:"2g" }} €){% endif %}</span>
+        </span>
+      {% else %}
+        <span class="avg-sub">Nessuna settimana intera finita nel periodo.</span>
+      {% endif %}
+    {% endif %}
+  {% else %}
+    <span class="avg-value avg-none">–</span>
+    <span class="avg-sub">nessuna giornata nel periodo</span>
+  {% endif %}
+</div>

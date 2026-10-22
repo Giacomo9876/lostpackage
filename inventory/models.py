@@ -22,6 +22,10 @@ def thumb_upload_path(instance, filename):
     return f"packages/{timezone.now():%Y/%m}/thumbs/{uuid.uuid4().hex}.jpg"
 
 
+def receipt_upload_path(instance, filename):
+    return f"receipts/{timezone.now():%Y/%m}/{uuid.uuid4().hex}.jpg"
+
+
 class Store(models.Model):
     """Un centro commerciale dove c'è un negozio."""
 
@@ -286,7 +290,13 @@ class Package(models.Model):
 
 
 class DayClose(models.Model):
-    """Chiusura di una giornata in un centro: il totale degli scontrini battuti in cassa."""
+    """Chiusura di una giornata in un centro: gli scontrini battuti in cassa e i contanti Yakuza.
+
+    L'importo degli scontrini si scrive a mano oppure si legge dalla foto dello scontrino di chiusura
+    (`detected_total`): in ogni caso `receipts_total` è quello confermato da chi chiude, e può
+    correggere ciò che è stato letto. Le medie (infrasettimanale, settimanale, fine settimana) si
+    calcolano da queste chiusure.
+    """
 
     store = models.ForeignKey(Store, verbose_name="Centro", on_delete=models.PROTECT, related_name="closes")
     date = models.DateField("Giornata")
@@ -295,6 +305,17 @@ class DayClose(models.Model):
         max_digits=10,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0"))],
+    )
+    yakuza_cash = models.DecimalField(
+        "Contanti Yakuza (€)",
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+    photo = models.ImageField("Foto dello scontrino", upload_to=receipt_upload_path, max_length=255, blank=True)
+    detected_total = models.DecimalField(
+        "Importo letto dalla foto (€)", max_digits=10, decimal_places=2, null=True, blank=True
     )
     closed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
@@ -309,6 +330,22 @@ class DayClose(models.Model):
 
     def __str__(self):
         return f"{self.store} – {self.date:%d/%m/%Y}"
+
+    @property
+    def has_photo(self):
+        return bool(self.photo)
+
+    @property
+    def day_total(self):
+        """Incasso della giornata: scontrini più contanti Yakuza."""
+        return self.receipts_total + self.yakuza_cash
+
+    @property
+    def reading(self):
+        """Com'è stato ottenuto l'importo: «typed» (scritto), «read» (letto dalla foto), «corrected» (letto e poi corretto)."""
+        if self.detected_total is None:
+            return "typed"
+        return "read" if self.detected_total == self.receipts_total else "corrected"
 
 
 @receiver(post_delete, sender=Package)
@@ -326,3 +363,12 @@ def delete_package_files(sender, instance, **kwargs):
             storage.delete(name)
 
     transaction.on_commit(_delete)
+
+
+@receiver(post_delete, sender=DayClose)
+def delete_receipt_photo(sender, instance, **kwargs):
+    """Elimina la foto dello scontrino dal disco quando la chiusura viene eliminata (anche dall'admin)."""
+    if not (instance.photo and instance.photo.name):
+        return
+    storage, name = instance.photo.storage, instance.photo.name
+    transaction.on_commit(lambda: storage.delete(name))

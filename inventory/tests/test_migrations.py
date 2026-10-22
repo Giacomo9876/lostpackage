@@ -67,3 +67,47 @@ class PaymentMigrationTests(TransactionTestCase):
         Old = back.get_model("inventory", "Package")
         self.assertFalse(Old.objects.get(pk=yakuza.pk).receipt)
         self.assertTrue(Old.objects.get(pk=card.pk).receipt)
+
+
+class ReceiptCloseMigrationTests(TransactionTestCase):
+    """La 0008 aggiunge Yakuza, foto e importo letto alle chiusure: quelle già fatte restano com'erano."""
+
+    serialized_rollback = True
+    PAYMENT = [("inventory", "0007_metodo_pagamento")]
+    SCONTRINI = [("inventory", "0008_scontrini_chiusura")]
+
+    def migrate(self, targets):
+        executor = MigrationExecutor(connection)
+        executor.migrate(targets)
+        return executor.loader.project_state(targets).apps
+
+    def tearDown(self):
+        call_command("migrate", verbosity=0)
+        super().tearDown()
+
+    def test_old_closes_keep_their_amount_and_start_without_yakuza_photo_or_reading(self):
+        old = self.migrate(self.PAYMENT)
+        Store = old.get_model("inventory", "Store")
+        DayClose = old.get_model("inventory", "DayClose")
+        close = DayClose.objects.create(store=Store.objects.get(name="Globo"), date="2026-10-01", receipts_total=Decimal("321.45"))
+
+        new = self.migrate(self.SCONTRINI)
+        migrated = new.get_model("inventory", "DayClose").objects.get(pk=close.pk)
+        self.assertEqual(migrated.receipts_total, Decimal("321.45"))
+        self.assertEqual(migrated.yakuza_cash, Decimal("0.00"))
+        self.assertIsNone(migrated.detected_total)
+        self.assertFalse(migrated.photo)
+
+    def test_it_can_be_undone(self):
+        self.migrate(self.PAYMENT)
+        new = self.migrate(self.SCONTRINI)
+        Store = new.get_model("inventory", "Store")
+        DayClose = new.get_model("inventory", "DayClose")
+        close = DayClose.objects.create(
+            store=Store.objects.get(name="Globo"), date="2026-10-02", receipts_total=Decimal("10.00"), yakuza_cash=Decimal("5.00")
+        )
+
+        back = self.migrate(self.PAYMENT)
+        Old = back.get_model("inventory", "DayClose")
+        self.assertEqual(Old.objects.get(pk=close.pk).receipts_total, Decimal("10.00"))
+        self.assertNotIn("yakuza_cash", [f.name for f in Old._meta.get_fields()])

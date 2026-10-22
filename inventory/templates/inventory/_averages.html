@@ -1,0 +1,6 @@
+{# Le tre medie di un insieme di chiusure. Serve: average (Averages), show_private. #}
+<section class="avg-cards" aria-label="Medie degli incassi">
+  {% include "inventory/_avg.html" with title="Infrasettimanale" note="lunedì – venerdì" bucket=average.weekdays %}
+  {% include "inventory/_avg.html" with title="Settimanale" note="tutti i giorni" bucket=average.all_days week=True %}
+  {% include "inventory/_avg.html" with title="Fine settimana" note="sabato e domenica" bucket=average.weekend %}
+</section>

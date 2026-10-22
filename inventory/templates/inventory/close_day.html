@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Scontrini della giornata{% endblock %}
+
+{% block content %}
+<h1>{% if close %}Modifica la giornata{% else %}Scontrini della giornata{% endif %}</h1>
+<p class="sub">
+  <strong>{{ store.label }}</strong>
+  {% if scope.is_owner %}· <a href="{% url 'inventory:close_day' %}">cambia centro</a>{% endif %}
+</p>
+
+<nav class="chips" aria-label="Giornata">
+  <a class="chip" href="{% querystring data=None %}"{% if is_today %} aria-current="true"{% endif %}>Oggi</a>
+  <a class="chip" href="{% querystring data=yesterday.isoformat %}"{% if is_yesterday %} aria-current="true"{% endif %}>Ieri</a>
+</nav>
+{% if scope.is_owner %}
+  <form method="get" class="day-pick">
+    <input type="hidden" name="centro" value="{{ store.pk }}">
+    <div class="field">
+      <label for="id_data">Un'altra giornata</label>
+      <input type="date" id="id_data" name="data" value="{{ day|date:'Y-m-d' }}" max="{{ today_iso }}" required>
+    </div>
+    <button class="btn btn-secondary" type="submit">Apri</button>
+  </form>
+{% endif %}
+<p class="summary">{{ day|date:"l j F Y"|lower }}{% if close %} · già chiusa{% endif %}</p>
+
+<form method="post" enctype="multipart/form-data" class="stack card" data-submit-once data-receipt-form
+      {% if ocr_available %}data-read-url="{% url 'inventory:receipt_read' %}"{% endif %}>
+  {% csrf_token %}
+  {% for error in form.non_field_errors %}<p class="error" role="alert">{{ error }}</p>{% endfor %}
+
+  <div class="field{% if form.photo.errors %} has-error{% endif %}">
+    {{ form.photo }}
+    <label class="photo-drop{% if close.has_photo %} has-photo{% endif %}" for="{{ form.photo.id_for_label }}">
+      <img id="photo-preview" alt="Anteprima dello scontrino"
+           {% if close.has_photo %}src="{% url 'inventory:receipt_photo' close.pk %}?v={{ close.updated_at|date:'U' }}"{% else %}hidden{% endif %}>
+      <span class="photo-prompt">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3v11H4V8Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        {% if close.has_photo %}Cambia foto{% elif ocr_available %}Fotografa lo scontrino di chiusura{% else %}Aggiungi la foto dello scontrino{% endif %}
+      </span>
+    </label>
+    {% for error in form.photo.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    <p class="hint">
+      {% if ocr_available %}L'importo si legge dalla foto e lo compila da solo: controllalo e, se non è giusto, scrivi quello corretto.
+      {% else %}La foto resta allegata alla giornata come prova. Scrivi tu l'importo qui sotto.{% endif %}
+    </p>
+    <p class="reading" data-reading-status role="status" aria-live="polite" hidden></p>
+    {{ form.reading_token }}
+  </div>
+
+  <div class="field{% if form.receipts_total.errors %} has-error{% endif %}">
+    <label for="{{ form.receipts_total.id_for_label }}">{{ form.receipts_total.label }}</label>
+    <div class="readout-input">{{ form.receipts_total }}<span>€</span></div>
+    {% for error in form.receipts_total.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    {% if close.detected_total is not None and close.reading == "corrected" %}
+      <p class="hint">Dalla foto era stato letto {{ close.detected_total|floatformat:"2g" }} €.</p>
+    {% else %}
+      <p class="hint">Il totale della giornata come lo dà il registratore di cassa.</p>
+    {% endif %}
+  </div>
+
+  <div class="field{% if form.yakuza_cash.errors %} has-error{% endif %}">
+    <label for="{{ form.yakuza_cash.id_for_label }}">{{ form.yakuza_cash.label }}</label>
+    <div class="readout-input">{{ form.yakuza_cash }}<span>€</span></div>
+    {% for error in form.yakuza_cash.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    <p class="hint">{{ form.yakuza_cash.help_text }}</p>
+  </div>
+
+  {% if close.has_photo %}
+    <div class="checks">
+      <label class="check">{{ form.remove_photo }} <span>Togli la foto</span></label>
+    </div>
+  {% endif %}
+
+  {% if close %}
+    <p class="hint">Chiusa{% if close.closed_by %} da {{ close.closed_by.get_username }}{% endif %} il {{ close.updated_at|date:"j F, H:i"|lower }}.</p>
+  {% endif %}
+
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">{% if close %}Salva le modifiche{% else %}Salva la giornata{% endif %}</button>
+    <a class="btn btn-quiet" href="{{ back_url }}">Annulla</a>
+  </div>
+</form>
+
+{% if close %}
+  <form method="post" action="{% url 'inventory:close_delete' close.pk %}" class="delete-close"
+        data-confirm="Eliminare la chiusura del {{ day|date:'j F' }}? Si perdono anche la foto e i contanti Yakuza.">
+    {% csrf_token %}
+    <button class="btn btn-quiet btn-danger-text" type="submit">Elimina questa chiusura</button>
+  </form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% load static %}
+<script src="{% static 'js/receipt-form.js' %}" defer></script>
+{% endblock %}

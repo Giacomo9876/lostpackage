@@ -1,4 +1,8 @@
-"""Chiusura di giornata: pacchi venduti inseriti a fine giornata e totale degli scontrini in cassa."""
+"""Chiusura di giornata: pacchi venduti inseriti a fine giornata e totale degli scontrini in cassa.
+
+Il modulo della cassa (importo, foto, Yakuza) è nella sezione Scontrini: qui si prova che la pagina di
+chiusura lo usa, il resto è in test_receipts.py.
+"""
 from datetime import timedelta
 from decimal import Decimal
 
@@ -21,8 +25,11 @@ class ClosingBase(BaseCase):
             data["premium"] = "on"
         return self.client.post(url or self.url, data)
 
-    def close(self, total, url=None):
-        return self.client.post(url or self.url, {"azione": "chiusura", "receipts_total": total})
+    close_url = reverse("inventory:close_day")
+
+    def close(self, total, day=None, **extra):
+        url = self.close_url if day is None else f"{self.close_url}?data={day.isoformat()}"
+        return self.client.post(url, {"receipts_total": total, **extra})
 
 
 class EntryTests(ClosingBase):
@@ -275,7 +282,7 @@ class DayTests(ClosingBase):
     def test_a_manager_cannot_write_into_an_older_day(self):
         old = timezone.localdate() - timedelta(days=3)
         self.add("1", url=self.day_url(old))
-        self.close("10", url=self.day_url(old))
+        self.close("10", day=old)
         self.assertFalse(DayClose.objects.filter(date=old).exists())
         # i due inserimenti sono finiti su «oggi», non sul giorno vecchio
         self.assertEqual(timezone.localdate(Package.objects.get().sold_at), timezone.localdate())
@@ -298,13 +305,27 @@ class DayTests(ClosingBase):
 class CloseTests(ClosingBase):
     def test_closing_the_day_saves_the_receipts_total(self):
         response = self.close("123,40")
-        self.assertRedirects(response, self.url, fetch_redirect_response=False)
+        self.assertRedirects(response, reverse("inventory:receipts"), fetch_redirect_response=False)
         close = DayClose.objects.get()
         self.assertEqual((close.store, close.date, close.receipts_total), (store("Milanofiori"), timezone.localdate(), Decimal("123.40")))
         self.assertEqual(close.closed_by, self.user)
         page = self.client.get(self.url)
-        self.assertContains(page, 'value="123,40"')
-        self.assertContains(page, "Aggiorna la chiusura")
+        self.assertContains(page, "<strong>123,40 €</strong>")
+        self.assertContains(page, "Modifica scontrini")
+        self.assertContains(self.client.get(self.close_url), 'value="123,40"')
+
+    def test_the_cash_card_links_to_the_form_of_the_same_day(self):
+        page = self.client.get(self.url)
+        self.assertContains(page, "Chiudi la giornata")
+        self.assertEqual(page.context["close_url"], self.close_url)
+        yesterday = timezone.localdate() - timedelta(days=1)
+        page = self.client.get(self.day_url(yesterday))
+        self.assertEqual(page.context["close_url"], f"{self.close_url}?data={yesterday.isoformat()}")
+
+    def test_the_old_inline_form_is_gone(self):
+        response = self.client.post(self.url, {"azione": "chiusura", "receipts_total": "10"})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(DayClose.objects.exists())
 
     def test_closing_again_updates_instead_of_duplicating(self):
         self.close("100")
@@ -317,11 +338,11 @@ class CloseTests(ClosingBase):
         self.assertEqual(DayClose.objects.get().receipts_total, Decimal("0.00"))
 
     def test_invalid_totals_are_rejected(self):
-        for raw in ("", "-1", "abc", "12345678901", "1,234"):
+        for raw in ("", "-1", "abc", "12345678901", "1,234", "10000000"):
             with self.subTest(raw=raw):
                 response = self.close(raw)
                 self.assertEqual(response.status_code, 200)
-                self.assertIn("receipts_total", response.context["close_form"].errors)
+                self.assertIn("receipts_total", response.context["form"].errors)
         self.assertEqual(DayClose.objects.count(), 0)
 
     def test_each_center_closes_its_own_day(self):
@@ -332,7 +353,7 @@ class CloseTests(ClosingBase):
 
     def test_yesterday_can_be_closed_separately_from_today(self):
         yesterday = timezone.localdate() - timedelta(days=1)
-        self.close("10", url=self.day_url(yesterday))
+        self.close("10", day=yesterday)
         self.close("20")
         self.assertEqual(
             {c.date: c.receipts_total for c in DayClose.objects.all()},
