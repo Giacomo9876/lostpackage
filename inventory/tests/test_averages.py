@@ -181,3 +181,34 @@ class RowsFromTheDatabaseTests(TestCase):
         close = close_day(MON_5, "100.00")
         close.yakuza_cash = D("35.50")
         self.assertEqual(close.day_total, D("135.50"))
+
+
+class ChartTests(SimpleTestCase):
+    """Le barre del grafico: la media più alta è lunga quanto la riga, le altre in proporzione."""
+
+    def test_bars_are_proportional_to_the_highest_average(self):
+        rows = [row(MON_5, "100"), row(TUE_6, "100"), row(SAT_10, "400")]
+        chart = averages.chart_rows(averages.compute(rows, period(), TODAY))
+        self.assertEqual([r.title for r in chart], ["Infrasettimanale", "Settimanale", "Fine settimana"])
+        # lun–ven 100, tutti i giorni 200, sab–dom 400
+        self.assertEqual([r.pct for r in chart], [25, 50, 100])
+        self.assertEqual([r.yakuza_pct for r in chart], [0, 0, 0])
+
+    def test_the_yakuza_part_of_a_bar(self):
+        chart = averages.chart_rows(averages.compute([row(MON_5, "75", "25")], period(), TODAY))
+        weekdays = chart[0]
+        self.assertEqual((weekdays.pct, weekdays.yakuza_pct), (100, 25))
+
+    def test_a_tiny_average_still_shows_and_a_missing_one_has_no_bar(self):
+        chart = averages.chart_rows(averages.compute([row(MON_5, "1"), row(SAT_10, "10000")], period(), TODAY))
+        self.assertEqual(chart[0].pct, 2)
+        only_weekdays = averages.chart_rows(averages.compute([row(MON_5, "100")], period(), TODAY))
+        self.assertEqual([r.pct for r in only_weekdays], [100, 100, 0])
+
+    def test_no_data_no_bars(self):
+        chart = averages.chart_rows(averages.compute([], period(), TODAY))
+        self.assertEqual([(r.pct, r.yakuza_pct) for r in chart], [(0, 0)] * 3)
+
+    def test_days_of_zero_give_no_bar_and_no_error(self):
+        chart = averages.chart_rows(averages.compute([row(MON_5, "0")], period(), TODAY))
+        self.assertEqual([r.pct for r in chart], [0, 0, 0])

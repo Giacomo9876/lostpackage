@@ -703,6 +703,21 @@ class ReceiptsPageTests(ReceiptCase):
         self.assertTrue(all(close.yakuza_cash == 0 for close in response.context["closes"]))
         self.assertEqual([close.day_total for close in response.context["closes"]][-1], D("100.00"))
 
+    def test_the_three_averages_are_drawn_as_bars(self):
+        self.fill()
+        response = self.client.get(RECEIPTS)
+        chart = response.context["chart"]
+        # manager: lun–ven 150, tutti 325, sab–dom 500 (senza Yakuza)
+        self.assertEqual([r.pct for r in chart], [30, 65, 100])
+        self.assertContains(response, 'style="--w: 100%"')
+        self.assertContains(response, 'style="--w: 30%"')
+        self.assertNotContains(response, "avg-seg-yak")
+        self.assertContains(response, "Una settimana intera: <b>1.300,00 €</b>", html=False)
+        self.as_owner()
+        owner = self.client.get(RECEIPTS, {"centro": store("Milanofiori").pk})
+        self.assertContains(owner, "avg-seg-yak")
+        self.assertContains(owner, '<span class="swatch swatch-yak"></span>Yakuza', html=False)
+
     def test_a_manager_sees_only_the_own_center(self):
         self.fill()
         response = self.client.get(RECEIPTS, {"centro": store("Globo").pk})

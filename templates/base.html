@@ -1,4 +1,4 @@
-{% load static %}<!doctype html>
+{% load static assets %}<!doctype html>
 <html lang="it">
 <head>
   <meta charset="utf-8">
@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#16222D">
   <meta name="robots" content="noindex, nofollow">
   <title>{% block title %}Magazzino{% endblock %} – Pacchi Perduti</title>
-  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <link rel="stylesheet" href="{% asset 'css/app.css' %}">
 </head>
 <body>
   <header class="top">

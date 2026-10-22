@@ -98,6 +98,6 @@
 {% endblock %}
 
 {% block scripts %}
-{% load static %}
-<script src="{% static 'js/receipt-form.js' %}" defer></script>
+{% load assets %}
+<script src="{% asset 'js/receipt-form.js' %}" defer></script>
 {% endblock %}

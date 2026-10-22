@@ -381,6 +381,7 @@ class ReceiptsView(TemplateView):
             store=store,
             stores=scope.stores(),
             average=average,
+            chart=averages.chart_rows(average),
             by_store=by_store,
             closes=self.with_links(listed[: averages.LIST_LIMIT], scope),
             more=len(listed) > averages.LIST_LIMIT,

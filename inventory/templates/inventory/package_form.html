@@ -65,6 +65,6 @@
 {% endblock %}
 
 {% block scripts %}
-{% load static %}
-<script src="{% static 'js/package-form.js' %}" defer></script>
+{% load assets %}
+<script src="{% asset 'js/package-form.js' %}" defer></script>
 {% endblock %}
