@@ -111,3 +111,41 @@ class ReceiptCloseMigrationTests(TransactionTestCase):
         Old = back.get_model("inventory", "DayClose")
         self.assertEqual(Old.objects.get(pk=close.pk).receipts_total, Decimal("10.00"))
         self.assertNotIn("yakuza_cash", [f.name for f in Old._meta.get_fields()])
+
+
+class FranchiseMigrationTests(TransactionTestCase):
+    """La 0009 aggiunge il franchising: i ruoli e le chiusure che ci sono già non cambiano."""
+
+    serialized_rollback = True
+    BEFORE = [("inventory", "0008_scontrini_chiusura")]
+    AFTER = [("inventory", "0009_franchising")]
+
+    def migrate(self, targets):
+        executor = MigrationExecutor(connection)
+        executor.migrate(targets)
+        return executor.loader.project_state(targets).apps
+
+    def tearDown(self):
+        call_command("migrate", verbosity=0)
+        super().tearDown()
+
+    def test_existing_roles_and_closes_are_kept_and_it_can_be_undone(self):
+        old = self.migrate(self.BEFORE)
+        User = old.get_model("auth", "User")
+        Profile = old.get_model("inventory", "Profile")
+        Store = old.get_model("inventory", "Store")
+        DayClose = old.get_model("inventory", "DayClose")
+        globo = Store.objects.get(name="Globo")
+        owner = Profile.objects.create(user=User.objects.create(username="t"), role="owner")
+        manager = Profile.objects.create(user=User.objects.create(username="m"), role="manager", store=globo)
+        close = DayClose.objects.create(store=globo, date="2026-10-01", receipts_total=Decimal("10.00"), yakuza_cash=Decimal("2.00"))
+
+        new = self.migrate(self.AFTER)
+        NewProfile = new.get_model("inventory", "Profile")
+        self.assertEqual(NewProfile.objects.get(pk=owner.pk).role, "owner")
+        migrated = NewProfile.objects.get(pk=manager.pk)
+        self.assertEqual((migrated.role, migrated.store_id, migrated.franchise_id), ("manager", globo.pk, None))
+        self.assertEqual(new.get_model("inventory", "DayClose").objects.get(pk=close.pk).yakuza_cash, Decimal("2.00"))
+
+        back = self.migrate(self.BEFORE)
+        self.assertEqual(back.get_model("inventory", "Profile").objects.count(), 2)

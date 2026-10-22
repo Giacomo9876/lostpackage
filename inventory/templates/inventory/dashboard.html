@@ -72,5 +72,23 @@
   {% endfor %}
 </ul>
 
+{% if franchise_cards %}
+  <h2>Franchising</h2>
+  <ul class="stores">
+    {% for item, last in franchise_cards %}
+      <li>
+        <a class="store-card" href="{% url 'inventory:franchise' %}?punto={{ item.pk }}">
+          <span class="store-head"><strong>{{ item.name }}</strong><span class="store-city">{{ item.city }}</span></span>
+          <span class="store-line">{% if last %}Ultima giornata: {{ last|date:"D j F"|lower }}{% else %}Nessuna giornata inserita{% endif %}</span>
+          <span class="store-tags">
+            {% if last == today %}<span class="tag tag-exact">Oggi chiuso</span>{% else %}<span class="tag">Oggi non ancora chiuso</span>{% endif %}
+          </span>
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+  <p class="fine-print">I punti in franchising sono a parte: i loro incassi non entrano nei totali qui sopra. <a href="{% url 'inventory:franchise' %}">Medie e giornate dei punti</a></p>
+{% endif %}
+
 <p class="fine-print">In magazzino in tutto: {{ stock_total.count }} pacchi, valore {{ stock_total.value|floatformat:"2g" }} €.</p>
 {% endblock %}

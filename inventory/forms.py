@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from . import ocr
 from .images import process_receipt, process_upload
-from .models import Batch, DayClose, Package, ShopSettings
+from .models import Batch, DayClose, FranchiseDay, Package, ShopSettings
 
 TOLERANCE_CHOICES = [
     (0, "Peso esatto"),
@@ -303,12 +303,22 @@ class CloseDayForm(forms.Form):
 
     def save(self, store, day):
         """Salva (o aggiorna) la chiusura di quel centro e giorno; ritorna l'oggetto DayClose."""
+        return self.save_day(DayClose, {"store": store, "date": day})
+
+    def extra_values(self):
+        """Altri campi da salvare sulla giornata (le sottoclassi ne aggiungono)."""
+        return {}
+
+    def save_day(self, model, lookup):
+        """Salva (o aggiorna) la giornata `model` individuata da `lookup` (centro o punto, e giorno)."""
         data = self.cleaned_data
         for attempt in (1, 2):
-            close = DayClose.objects.filter(store=store, date=day).first() or DayClose(store=store, date=day)
+            close = model.objects.filter(**lookup).first() or model(**lookup)
             old = [(close.photo.storage, close.photo.name)] if close.photo else []
             close.receipts_total = data["receipts_total"]
             close.yakuza_cash = data["yakuza_cash"]
+            for name, value in self.extra_values().items():
+                setattr(close, name, value)
             close.closed_by = self.user
             replaced = []
             if self._receipt is not None:
@@ -333,6 +343,73 @@ class CloseDayForm(forms.Form):
             for storage, name in replaced:
                 transaction.on_commit(lambda storage=storage, name=name: storage.delete(name))
             return close
+
+
+class FranchiseDayForm(CloseDayForm):
+    """La giornata di un punto in franchising: come la chiusura di un centro, più contanti e carta,
+    le spese (importo e descrizione) e le note."""
+
+    cash_total = forms.DecimalField(
+        label="Contanti (€)",
+        required=False,
+        min_value=Decimal("0"),
+        max_value=MAX_CLOSE_AMOUNT,
+        max_digits=10,
+        decimal_places=2,
+        localize=True,
+        widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
+    )
+    card_total = forms.DecimalField(
+        label="Carta (€)",
+        required=False,
+        min_value=Decimal("0"),
+        max_value=MAX_CLOSE_AMOUNT,
+        max_digits=10,
+        decimal_places=2,
+        localize=True,
+        widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
+    )
+    expenses = forms.DecimalField(
+        label="Spese della giornata (€, facoltative)",
+        required=False,
+        min_value=Decimal("0"),
+        max_value=MAX_CLOSE_AMOUNT,
+        max_digits=10,
+        decimal_places=2,
+        localize=True,
+        widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
+    )
+    expenses_note = forms.CharField(
+        label="Per cosa (facoltativo)",
+        required=False,
+        max_length=200,
+        widget=forms.TextInput(attrs={"placeholder": "es. pulizie 30, cancelleria 12", "autocomplete": "off"}),
+    )
+    notes = forms.CharField(
+        label="Note della giornata (facoltative)",
+        required=False,
+        max_length=2000,
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        cleaned["expenses"] = cleaned.get("expenses") or Decimal("0.00")
+        return cleaned
+
+    def extra_values(self):
+        data = self.cleaned_data
+        return {
+            "cash_total": data.get("cash_total"),
+            "card_total": data.get("card_total"),
+            "expenses": data.get("expenses") or Decimal("0.00"),
+            "expenses_note": data.get("expenses_note", "").strip(),
+            "notes": data.get("notes", "").strip(),
+        }
+
+    def save(self, franchise, day):
+        """Salva (o aggiorna) la giornata di quel punto; ritorna l'oggetto FranchiseDay."""
+        return self.save_day(FranchiseDay, {"franchise": franchise, "date": day})
 
 
 class PriceForm(forms.ModelForm):

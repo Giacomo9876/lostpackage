@@ -1,4 +1,4 @@
-{% load static %}<!doctype html>
+{% load static assets %}<!doctype html>
 <html lang="it">
 <head>
   <meta charset="utf-8">
@@ -7,15 +7,15 @@
   <meta name="theme-color" content="#16222D">
   <meta name="robots" content="noindex, nofollow">
   <title>{% block title %}Magazzino{% endblock %} – Pacchi Perduti</title>
-  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <link rel="stylesheet" href="{% asset 'css/app.css' %}">
 </head>
 <body>
   <header class="top">
     <div class="top-inner">
-      <a class="brand" href="{% url 'inventory:dashboard' %}">Pacchi Perduti</a>
+      <a class="brand" href="{% if scope.is_franchise %}{% url 'inventory:franchise' %}{% else %}{% url 'inventory:dashboard' %}{% endif %}">Pacchi Perduti</a>
       {% if user.is_authenticated %}
       <div class="who">
-        {% if scope %}<span class="who-role">{% if scope.is_owner %}Titolare{% else %}{{ scope.store.name }}{% endif %}</span>{% endif %}
+        {% if scope %}<span class="who-role">{% if scope.is_owner %}Titolare{% elif scope.is_franchise %}{{ scope.franchise.name }}{% else %}{{ scope.store.name }}{% endif %}</span>{% endif %}
         <form method="post" action="{% url 'logout' %}">
           {% csrf_token %}
           <button class="top-link" type="submit">Esci</button>
@@ -34,7 +34,7 @@
     {% block content %}{% endblock %}
   </main>
 
-  {% if user.is_authenticated and scope %}
+  {% if user.is_authenticated and scope and not scope.is_franchise %}
   {% with page=request.resolver_match.url_name %}
   <nav class="dock" aria-label="Navigazione principale">
     <div class="dock-inner">

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+{% if franchises %}
+  <ul class="stores">
+    {% for item in franchises %}
+      <li>
+        <a class="store-card" href="{% querystring punto=item.pk %}">
+          <span class="store-head"><strong>{{ item.name }}</strong><span class="store-city">{{ item.city }}</span></span>
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="empty"><p>Nessun punto in franchising. Si crea dall'admin («Punti in franchising»).</p></div>
+{% endif %}
+{% endblock %}

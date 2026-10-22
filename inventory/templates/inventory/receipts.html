@@ -3,7 +3,10 @@
 
 {% block content %}
 <h1>Scontrini</h1>
-<p class="sub"><strong>{% if store %}{{ store.label }}{% else %}Tutti i centri{% endif %}</strong></p>
+<p class="sub">
+  <strong>{% if store %}{{ store.label }}{% else %}Tutti i centri{% endif %}</strong>
+  {% if scope.is_owner %}· <a href="{% url 'inventory:franchise' %}">Franchising</a>{% endif %}
+</p>
 
 <div class="actions receipts-add">
   <a class="btn btn-primary" href="{{ add_url }}">Aggiungi scontrini di una giornata</a>
@@ -39,16 +42,7 @@
       <li>
         <a class="avg-store" href="{% querystring centro=item.pk %}">
           <span class="store-head"><strong>{{ item.name }}</strong><span class="store-city">{{ item.city }}</span></span>
-          {% if avg.has_data %}
-            <span class="avg-trio">
-              <span><span class="avg-trio-label">Lun – ven</span><b>{{ avg.weekdays.avg_total|floatformat:"2g"|default:"–" }}{% if avg.weekdays.days %} €{% endif %}</b></span>
-              <span><span class="avg-trio-label">Settimana</span><b>{{ avg.all_days.avg_total|floatformat:"2g" }} €</b></span>
-              <span><span class="avg-trio-label">Sab – dom</span><b>{{ avg.weekend.avg_total|floatformat:"2g"|default:"–" }}{% if avg.weekend.days %} €{% endif %}</b></span>
-            </span>
-            <span class="store-line">al giorno · {{ avg.all_days.days }} giornat{{ avg.all_days.days|pluralize:"a,e" }}{% if avg.weeks %} · una settimana intera {{ avg.week_total|floatformat:"2g" }} €{% endif %}</span>
-          {% else %}
-            <span class="store-line">Nessuna chiusura nel periodo.</span>
-          {% endif %}
+          {% include "inventory/_avg_trio.html" %}
         </a>
       </li>
     {% endfor %}

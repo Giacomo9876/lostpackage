@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Franchising{% endblock %}
+
+{% block content %}
+<h1>Franchising</h1>
+
+{% if overview %}
+  {# Il titolare: tutti i punti a confronto, a parte rispetto ai centri. #}
+  <p class="sub"><strong>Tutti i punti</strong></p>
+  {% include "inventory/_period.html" %}
+  {% if cards %}
+    <ul class="avg-stores">
+      {% for item, avg, last in cards %}
+        <li>
+          <a class="avg-store" href="{% querystring punto=item.pk %}">
+            <span class="store-head"><strong>{{ item.name }}</strong><span class="store-city">{{ item.city }}</span></span>
+            {% include "inventory/_avg_trio.html" %}
+            <span class="store-line">{% if last %}Ultima giornata: {{ last|date:"D j F Y"|lower }}{% else %}Nessuna giornata inserita{% endif %}</span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="fine-print">I numeri dei punti in franchising restano qui: non entrano nella dashboard né nelle medie dei centri.</p>
+  {% else %}
+    <div class="empty">
+      <p>Nessun punto in franchising. Si crea dall'admin («Punti in franchising»), poi si dà a un utente il ruolo Franchising con il suo punto.</p>
+    </div>
+  {% endif %}
+
+{% else %}
+  <p class="sub">
+    <strong>{{ franchise.label }}</strong>
+    {% if all_url %}· <a href="{{ all_url }}">tutti i punti</a>{% endif %}
+  </p>
+
+  <div class="actions receipts-add">
+    <a class="btn btn-primary" href="{{ add_url }}">Aggiungi una giornata</a>
+  </div>
+
+  {% include "inventory/_period.html" %}
+
+  {% if average.has_data %}
+    {% include "inventory/_averages.html" %}
+
+    <section class="card" aria-labelledby="totals-title">
+      <h2 id="totals-title">Totali <span class="h1-sub">{{ period.label|lower }}</span></h2>
+      <dl class="metrics">
+        <div><dt>Incasso (scontrini + Yakuza)</dt><dd>{{ totals.income|floatformat:"2g" }} €</dd></div>
+        <div><dt>Spese</dt><dd>{{ totals.expenses|floatformat:"2g" }} €</dd></div>
+        <div><dt>Incasso meno spese</dt><dd{% if totals.net < 0 %} class="is-warn"{% endif %}>{{ totals.net|floatformat:"2g" }} €</dd></div>
+        <div><dt>Yakuza</dt><dd>{{ totals.yakuza|default:0|floatformat:"2g" }} €</dd></div>
+        <div><dt>Contanti</dt><dd>{% if totals.cash_days %}{{ totals.cash|floatformat:"2g" }} €{% else %}–{% endif %}</dd></div>
+        <div><dt>Carta</dt><dd>{% if totals.card_days %}{{ totals.card|floatformat:"2g" }} €{% else %}–{% endif %}</dd></div>
+      </dl>
+      <p class="hint">Su {{ totals.days }} giornat{{ totals.days|pluralize:"a,e" }}{% if totals.cash_days < totals.days or totals.card_days < totals.days %}; contanti e carta solo dove sono stati scritti{% endif %}.</p>
+    </section>
+  {% else %}
+    <div class="empty">
+      <p>Nessuna giornata in questo periodo. Aggiungi la prima e qui compaiono le tre medie e i totali.</p>
+    </div>
+  {% endif %}
+
+  <h2>Giornate {% if days %}<span class="count-pill">{{ days|length }}{% if more %}+{% endif %}</span>{% endif %}</h2>
+  {% if days %}
+    <ul class="days">
+      {% for day in days %}
+        <li class="day">
+          <span class="day-date">{{ day.date|date:"D j F"|lower }}</span>
+          <span class="day-money">{{ day.day_total|floatformat:"2g" }} €</span>
+          <span class="day-meta">
+            <span class="nowrap">scontrini {{ day.receipts_total|floatformat:"2g" }} €</span>{% if day.yakuza_cash %} + <span class="nowrap">Yakuza {{ day.yakuza_cash|floatformat:"2g" }} €</span>{% endif %}
+            {% if day.cash_total is not None or day.card_total is not None %}
+              <br>{% if day.cash_total is not None %}<span class="nowrap">contanti {{ day.cash_total|floatformat:"2g" }} €</span>{% endif %}{% if day.cash_total is not None and day.card_total is not None %} · {% endif %}{% if day.card_total is not None %}<span class="nowrap">carta {{ day.card_total|floatformat:"2g" }} €</span>{% endif %}
+            {% endif %}
+            {% if day.expenses %}<br><span class="nowrap">spese {{ day.expenses|floatformat:"2g" }} €</span>{% if day.expenses_note %} · {{ day.expenses_note }}{% endif %}{% endif %}
+            {% if day.notes %}<br><span class="day-note">{{ day.notes|truncatechars:140 }}</span>{% endif %}
+          </span>
+          <span class="day-tags">
+            {% if day.reading == "read" %}<span class="tag tag-exact">Letto dalla foto</span>
+            {% elif day.reading == "corrected" %}<span class="tag tag-sold">Corretto a mano · letto {{ day.detected_total|floatformat:"2g" }} €</span>
+            {% else %}<span class="tag">Scritto a mano</span>{% endif %}
+            {% if day.payments_mismatch %}<span class="tag tag-warn">Contanti + carta ≠ scontrini</span>{% endif %}
+            {% if day.has_photo %}<a class="tag-link" href="{% url 'inventory:franchise_photo' day.pk %}?v={{ day.updated_at|date:'U' }}" target="_blank" rel="noopener">Foto</a>{% endif %}
+            <a class="tag-link" href="{{ day.edit_url }}">Modifica</a>
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+    {% if more %}
+      <p class="fine-print">Sono mostrate le ultime {{ list_limit }} giornate: per vedere le altre scegli un periodo più corto.</p>
+    {% endif %}
+  {% else %}
+    <p class="hint">Nessuna giornata nel periodo scelto.</p>
+  {% endif %}
+{% endif %}
+{% endblock %}

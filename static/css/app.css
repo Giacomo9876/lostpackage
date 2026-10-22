@@ -158,7 +158,7 @@ a { color: inherit; }
   display: block; margin-bottom: 6px;
   color: var(--slate); font-size: 0.9rem; font-weight: 600;
 }
-input, select {
+input, select, textarea {
   width: 100%; min-height: 52px; padding: 12px 14px;
   background: var(--paper); color: var(--ink);
   border: 2px solid var(--line); border-radius: var(--radius);
@@ -166,7 +166,8 @@ input, select {
 }
 .hint { margin: 6px 0 0; color: var(--slate); font-size: 0.85rem; }
 .error { margin: 6px 0 0; color: var(--alert); font-size: 0.9rem; font-weight: 600; }
-.has-error input, .has-error select { border-color: var(--alert); }
+textarea { display: block; min-height: 96px; resize: vertical; line-height: 1.4; }
+.has-error input, .has-error select, .has-error textarea { border-color: var(--alert); }
 
 /* Il display della bilancia */
 
@@ -540,22 +541,32 @@ h2 { margin: 24px 0 10px; font-size: 1.1rem; font-weight: 800; letter-spacing: -
 
 /* Scontrini: le tre medie, l'elenco delle giornate e il modulo di chiusura */
 
-.receipts-add { margin: 0 0 16px; }
-.avg-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin: 0 0 12px; }
-.avg {
-  display: grid; gap: 4px; align-content: start;
-  padding: 14px; background: var(--paper); border-radius: 14px;
-  border-left: 6px solid var(--tape);
-}
-.avg-title { font-size: 1.05rem; font-weight: 800; }
+.receipts-add { margin: 0 0 24px; }
+
+/* Grafico delle tre medie: barre orizzontali dalla stessa base, la più alta lunga quanto la riga */
+.avg-chart { display: grid; gap: 14px; }
+.avg-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; color: var(--slate); font-size: 0.85rem; font-weight: 600; }
+.swatch-receipts { background: var(--ink); }
+.avg-bars { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+.avg-row { display: grid; gap: 6px; }
+.avg-row-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0 12px; }
+.avg-row-title { font-weight: 800; }
+.avg-row-head .avg-note { white-space: nowrap; }
 .avg-note { color: var(--slate); font-size: 0.85rem; font-weight: 600; }
-.avg-value {
-  margin-top: 6px; font-size: clamp(1.5rem, 8vw, 2rem); white-space: nowrap;
-  font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+.avg-amount { font-size: 1.25rem; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.avg-track { display: block; height: 18px; }
+.avg-fill { display: flex; gap: 2px; width: var(--w, 0%); height: 100%; }
+.avg-seg { display: block; height: 100%; min-width: 2px; }
+.avg-seg-receipts { flex: 1 1 auto; background: var(--ink); }
+.avg-seg-yak { flex: 0 0 var(--y, 0%); background: var(--tape); }
+.avg-seg:last-child { border-radius: 0 4px 4px 0; }
+.nowrap { white-space: nowrap; }
+.avg-meta { color: var(--slate); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.avg-week { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0; padding-top: 12px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+@media (forced-colors: active) {
+  .avg-seg-receipts { background: CanvasText; }
+  .avg-seg-yak { background: Highlight; }
 }
-.avg-none { color: var(--slate); }
-.avg-sub { color: var(--slate); font-size: 0.85rem; }
-.avg-week { display: grid; gap: 2px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 
 .avg-stores { display: grid; gap: 10px; margin: 0 0 16px; padding: 0; list-style: none; }
 @media (min-width: 800px) { .avg-stores { grid-template-columns: repeat(3, 1fr); } }

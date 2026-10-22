@@ -1,24 +1,22 @@
-{# Una delle tre medie. Serve: title, note, bucket (Bucket); con week=True anche l'incasso di una settimana intera da `average`. #}
-<div class="avg">
-  <span class="avg-title">{{ title }}</span>
-  <span class="avg-note">{{ note }}</span>
-  {% if bucket.days %}
-    <span class="avg-value">{{ bucket.avg_total|floatformat:"2g" }} €</span>
-    <span class="avg-sub">al giorno · {{ bucket.days }} giornat{{ bucket.days|pluralize:"a,e" }}</span>
-    {% if show_private and bucket.yakuza %}
-      <span class="avg-sub">scontrini {{ bucket.avg_receipts|floatformat:"2g" }} € + Yakuza {{ bucket.avg_yakuza|floatformat:"2g" }} €</span>
+{# Una riga del grafico delle medie. Serve: row (averages.ChartRow), show_private. #}
+<li class="avg-row">
+  <span class="avg-row-head">
+    <span><b class="avg-row-title">{{ row.title }}</b> <span class="avg-note">{{ row.note }}</span></span>
+    <b class="avg-amount">{% if row.bucket.days %}{{ row.bucket.avg_total|floatformat:"2g" }} €{% else %}–{% endif %}</b>
+  </span>
+  <span class="avg-track" aria-hidden="true">
+    {% if row.pct %}
+      <span class="avg-fill" style="--w: {{ row.pct }}%"
+            title="{{ row.title }}: {{ row.bucket.avg_total|floatformat:'2g' }} € al giorno{% if show_private and row.yakuza_pct %} (scontrini {{ row.bucket.avg_receipts|floatformat:'2g' }} € + Yakuza {{ row.bucket.avg_yakuza|floatformat:'2g' }} €){% endif %}">
+        <span class="avg-seg avg-seg-receipts"></span>
+        {% if show_private and row.yakuza_pct %}<span class="avg-seg avg-seg-yak" style="--y: {{ row.yakuza_pct }}%"></span>{% endif %}
+      </span>
     {% endif %}
-    {% if week %}
-      {% if average.weeks %}
-        <span class="avg-week">Una settimana intera: <b>{{ average.week_total|floatformat:"2g" }} €</b>
-          <span class="avg-sub">media di {{ average.weeks }} settiman{{ average.weeks|pluralize:"a,e" }}{% if show_private and average.week_yakuza %} (Yakuza {{ average.week_yakuza|floatformat:"2g" }} €){% endif %}</span>
-        </span>
-      {% else %}
-        <span class="avg-sub">Nessuna settimana intera finita nel periodo.</span>
-      {% endif %}
-    {% endif %}
-  {% else %}
-    <span class="avg-value avg-none">–</span>
-    <span class="avg-sub">nessuna giornata nel periodo</span>
-  {% endif %}
-</div>
+  </span>
+  <span class="avg-meta">
+    {% if row.bucket.days %}
+      {{ row.bucket.days }} giornat{{ row.bucket.days|pluralize:"a,e" }}
+      {% if show_private and row.bucket.yakuza %}· <span class="nowrap">scontrini {{ row.bucket.avg_receipts|floatformat:"2g" }} €</span> + <span class="nowrap">Yakuza {{ row.bucket.avg_yakuza|floatformat:"2g" }} €</span>{% endif %}
+    {% else %}nessuna giornata nel periodo{% endif %}
+  </span>
+</li>

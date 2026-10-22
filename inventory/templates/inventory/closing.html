@@ -91,6 +91,6 @@
 {% endblock %}
 
 {% block scripts %}
-{% load static %}
-<script src="{% static 'js/closing.js' %}" defer></script>
+{% load assets %}
+<script src="{% asset 'js/closing.js' %}" defer></script>
 {% endblock %}

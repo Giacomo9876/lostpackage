@@ -1,6 +1,21 @@
-{# Le tre medie di un insieme di chiusure. Serve: average (Averages), show_private. #}
-<section class="avg-cards" aria-label="Medie degli incassi">
-  {% include "inventory/_avg.html" with title="Infrasettimanale" note="lunedì – venerdì" bucket=average.weekdays %}
-  {% include "inventory/_avg.html" with title="Settimanale" note="tutti i giorni" bucket=average.all_days week=True %}
-  {% include "inventory/_avg.html" with title="Fine settimana" note="sabato e domenica" bucket=average.weekend %}
+{# Le tre medie al giorno a barre e l'incasso medio di una settimana intera. Serve: average, chart, period, show_private. #}
+<section class="card avg-chart" aria-labelledby="avg-title">
+  <h2 id="avg-title">Media al giorno <span class="h1-sub">{{ period.label|lower }}</span></h2>
+  {% if show_private and average.all_days.yakuza %}
+    <ul class="avg-legend">
+      <li><span class="swatch swatch-receipts"></span>Scontrini</li>
+      <li><span class="swatch swatch-yak"></span>Yakuza</li>
+    </ul>
+  {% endif %}
+  <ul class="avg-bars">
+    {% for row in chart %}{% include "inventory/_avg.html" %}{% endfor %}
+  </ul>
+  <p class="avg-week">
+    {% if average.weeks %}
+      Una settimana intera: <b>{{ average.week_total|floatformat:"2g" }} €</b>
+      <span class="avg-note">media di {{ average.weeks }} settiman{{ average.weeks|pluralize:"a,e" }}{% if show_private and average.week_yakuza %}, di cui Yakuza {{ average.week_yakuza|floatformat:"2g" }} €{% endif %}</span>
+    {% else %}
+      <span class="avg-note">Nessuna settimana intera (lunedì – domenica) finita nel periodo.</span>
+    {% endif %}
+  </p>
 </section>

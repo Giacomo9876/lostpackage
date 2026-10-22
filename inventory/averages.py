@@ -99,9 +99,37 @@ class Averages:
         return self.all_days.days > 0
 
 
-def closing_rows(closes, period):
-    """Le chiusure del periodo come righe (centro, giorno, scontrini, Yakuza), pronte per `compute`."""
-    return list(stats.closes_in(closes, period).values_list("store_id", "date", "receipts_total", "yakuza_cash"))
+@dataclass
+class ChartRow:
+    """Una barra del grafico delle medie: la media al giorno di un gruppo di giorni."""
+
+    title: str
+    note: str
+    bucket: Bucket
+    pct: int = 0  # lunghezza della barra: la media più alta delle tre vale 100
+    yakuza_pct: int = 0  # quanta parte della barra è Yakuza (in % della barra)
+
+
+def chart_rows(average):
+    """Le tre medie al giorno pronte per il grafico a barre, nello stesso ordine della settimana."""
+    rows = [
+        ChartRow("Infrasettimanale", "lun – ven", average.weekdays),
+        ChartRow("Settimanale", "tutti i giorni", average.all_days),
+        ChartRow("Fine settimana", "sab – dom", average.weekend),
+    ]
+    top = max((row.bucket.avg_total for row in rows if row.bucket.avg_total), default=None)
+    for row in rows:
+        total = row.bucket.avg_total
+        if top and total:
+            row.pct = max(2, round(total / top * 100))  # una media piccola resta comunque visibile
+            if row.bucket.avg_yakuza:
+                row.yakuza_pct = min(100, max(1, round(row.bucket.avg_yakuza / total * 100)))
+    return rows
+
+
+def closing_rows(closes, period, key="store_id"):
+    """Le giornate del periodo come righe (centro o punto, giorno, scontrini, Yakuza), pronte per `compute`."""
+    return list(stats.closes_in(closes, period).values_list(key, "date", "receipts_total", "yakuza_cash"))
 
 
 def compute(rows, period, today):

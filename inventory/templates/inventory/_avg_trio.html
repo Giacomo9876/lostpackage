@@ -1,0 +1,11 @@
+{# Le tre medie al giorno in una riga, per le schede dei centri e dei punti. Serve: avg (Averages). #}
+{% if avg.has_data %}
+  <span class="avg-trio">
+    <span><span class="avg-trio-label">Lun – ven</span><b>{{ avg.weekdays.avg_total|floatformat:"2g"|default:"–" }}{% if avg.weekdays.days %} €{% endif %}</b></span>
+    <span><span class="avg-trio-label">Settimana</span><b>{{ avg.all_days.avg_total|floatformat:"2g" }} €</b></span>
+    <span><span class="avg-trio-label">Sab – dom</span><b>{{ avg.weekend.avg_total|floatformat:"2g"|default:"–" }}{% if avg.weekend.days %} €{% endif %}</b></span>
+  </span>
+  <span class="store-line">al giorno · {{ avg.all_days.days }} giornat{{ avg.all_days.days|pluralize:"a,e" }}{% if avg.weeks %} · una settimana intera {{ avg.week_total|floatformat:"2g" }} €{% endif %}</span>
+{% else %}
+  <span class="store-line">Nessuna giornata nel periodo.</span>
+{% endif %}

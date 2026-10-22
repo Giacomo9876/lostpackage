@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Scontrini della giornata{% endblock %}
+{% block title %}{{ page_title }}{% endblock %}
 
 {% block content %}
-<h1>{% if close %}Modifica la giornata{% else %}Scontrini della giornata{% endif %}</h1>
+<h1>{% if close %}Modifica la giornata{% else %}{{ page_title }}{% endif %}</h1>
 <p class="sub">
-  <strong>{{ store.label }}</strong>
-  {% if scope.is_owner %}· <a href="{% url 'inventory:close_day' %}{% if adding %}?nuova=1{% endif %}">cambia centro</a>{% endif %}
+  <strong>{{ place.label }}</strong>
+  {% if change_place_url %}· <a href="{{ change_place_url }}">{% if franchise_fields %}cambia punto{% else %}cambia centro{% endif %}</a>{% endif %}
 </p>
 
 {% if not adding %}
@@ -13,7 +13,7 @@
     <a class="chip" href="{% querystring data=None nuova=None %}"{% if is_today %} aria-current="true"{% endif %}>Oggi</a>
     <a class="chip" href="{% querystring data=yesterday.isoformat nuova=None %}"{% if is_yesterday %} aria-current="true"{% endif %}>Ieri</a>
   </nav>
-  {% if scope.is_owner %}
+  {% if may_pick_day %}
     <p class="sub"><a href="{{ new_url }}">Aggiungi un'altra giornata</a></p>
   {% endif %}
 {% endif %}
@@ -39,7 +39,7 @@
     {{ form.photo }}
     <label class="photo-drop{% if close.has_photo %} has-photo{% endif %}" for="{{ form.photo.id_for_label }}">
       <img id="photo-preview" alt="Anteprima dello scontrino"
-           {% if close.has_photo %}src="{% url 'inventory:receipt_photo' close.pk %}?v={{ close.updated_at|date:'U' }}"{% else %}hidden{% endif %}>
+           {% if photo_url %}src="{{ photo_url }}"{% else %}hidden{% endif %}>
       <span class="photo-prompt">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3v11H4V8Z"/><circle cx="12" cy="13" r="3.5"/></svg>
         {% if close.has_photo %}Cambia foto{% elif ocr_available %}Fotografa lo scontrino di chiusura{% else %}Aggiungi la foto dello scontrino{% endif %}
@@ -72,6 +72,28 @@
     <p class="hint">{{ form.yakuza_cash.help_text }}</p>
   </div>
 
+  {% if franchise_fields %}
+    <div class="field{% if form.cash_total.errors %} has-error{% endif %}">
+      <label for="{{ form.cash_total.id_for_label }}">{{ form.cash_total.label }}</label>
+      <div class="readout-input readout-compact">{{ form.cash_total }}<span>€</span></div>
+      {% for error in form.cash_total.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    </div>
+    <div class="field{% if form.card_total.errors %} has-error{% endif %}">
+      <label for="{{ form.card_total.id_for_label }}">{{ form.card_total.label }}</label>
+      <div class="readout-input readout-compact">{{ form.card_total }}<span>€</span></div>
+      {% for error in form.card_total.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    </div>
+    <p class="hint">Contanti e carta: come si dividono gli scontrini (li trovi sullo scontrino di chiusura). Facoltativi.</p>
+
+    <div class="field{% if form.expenses.errors %} has-error{% endif %}">
+      <label for="{{ form.expenses.id_for_label }}">{{ form.expenses.label }}</label>
+      <div class="readout-input readout-compact">{{ form.expenses }}<span>€</span></div>
+      {% for error in form.expenses.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    </div>
+    {% include "inventory/_field.html" with field=form.expenses_note %}
+    {% include "inventory/_field.html" with field=form.notes %}
+  {% endif %}
+
   {% if close.has_photo %}
     <div class="checks">
       <label class="check">{{ form.remove_photo }} <span>Togli la foto</span></label>
@@ -89,15 +111,15 @@
 </form>
 
 {% if close %}
-  <form method="post" action="{% url 'inventory:close_delete' close.pk %}" class="delete-close"
-        data-confirm="Eliminare la chiusura del {{ day|date:'j F' }}? Si perdono anche la foto e i contanti Yakuza.">
+  <form method="post" action="{{ delete_url }}" class="delete-close"
+        data-confirm="Eliminare la giornata del {{ day|date:'j F'|lower }}? Si perdono anche la foto e i contanti Yakuza.">
     {% csrf_token %}
-    <button class="btn btn-quiet btn-danger-text" type="submit">Elimina questa chiusura</button>
+    <button class="btn btn-quiet btn-danger-text" type="submit">Elimina questa giornata</button>
   </form>
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
-{% load static %}
-<script src="{% static 'js/receipt-form.js' %}" defer></script>
+{% load assets %}
+<script src="{% asset 'js/receipt-form.js' %}" defer></script>
 {% endblock %}

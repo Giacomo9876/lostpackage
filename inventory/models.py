@@ -45,8 +45,32 @@ class Store(models.Model):
         return f"{self.name} · {self.city}" if self.city else self.name
 
 
+class Franchise(models.Model):
+    """Un punto in franchising: un negozio affiliato con i suoi utenti e i suoi numeri.
+
+    È separato dai centri commerciali: i suoi incassi non entrano nella dashboard né nelle medie dei
+    centri, e chi lavora in un franchising vede solo il proprio punto.
+    """
+
+    name = models.CharField("Nome del punto", max_length=80, unique=True)
+    city = models.CharField("Città", max_length=80, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "punto in franchising"
+        verbose_name_plural = "punti in franchising"
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def label(self):
+        return f"{self.name} · {self.city}" if self.city else self.name
+
+
 class Profile(models.Model):
-    """Ruolo di un utente: i titolari vedono tutti i centri, gli store manager solo il proprio.
+    """Ruolo di un utente: i titolari vedono tutti i centri, gli store manager solo il proprio,
+    chi è in franchising solo il proprio punto in franchising (e nient'altro dell'app).
 
     Un utente senza profilo (e che non sia superuser) non vede niente: nessun accesso per caso.
     """
@@ -54,6 +78,7 @@ class Profile(models.Model):
     class Role(models.TextChoices):
         OWNER = "owner", "Titolare (vede tutti i centri)"
         MANAGER = "manager", "Store manager (vede solo il suo centro)"
+        FRANCHISE = "franchise", "Franchising (vede solo il suo punto)"
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
     role = models.CharField("Ruolo", max_length=10, choices=Role.choices, default=Role.MANAGER)
@@ -66,14 +91,27 @@ class Profile(models.Model):
         related_name="staff",
         help_text="Obbligatorio per gli store manager. Per i titolari non serve.",
     )
+    franchise = models.ForeignKey(
+        Franchise,
+        verbose_name="Punto in franchising",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="staff",
+        help_text="Obbligatorio per il ruolo Franchising.",
+    )
 
     class Meta:
         verbose_name = "profilo"
         verbose_name_plural = "profili"
         constraints = [
             models.CheckConstraint(
-                condition=Q(role="owner") | Q(store__isnull=False), name="manager_has_a_store"
-            )
+                condition=Q(role__in=["owner", "franchise"]) | Q(store__isnull=False), name="manager_has_a_store"
+            ),
+            models.CheckConstraint(
+                condition=Q(role__in=["owner", "manager"]) | Q(franchise__isnull=False),
+                name="franchisee_has_a_franchise",
+            ),
         ]
 
     def __str__(self):
@@ -86,10 +124,15 @@ class Profile(models.Model):
     def clean(self):
         if self.role == self.Role.MANAGER and not self.store_id:
             raise ValidationError({"store": "Uno store manager deve avere un centro commerciale."})
+        if self.role == self.Role.FRANCHISE and not self.franchise_id:
+            raise ValidationError({"franchise": "Chi è in franchising deve avere il suo punto."})
 
     def save(self, *args, **kwargs):
-        if self.role == self.Role.OWNER:
+        # Ogni ruolo tiene solo il legame che gli serve: un centro o un punto, mai entrambi.
+        if self.role != self.Role.MANAGER:
             self.store = None
+        if self.role != self.Role.FRANCHISE:
+            self.franchise = None
         super().save(*args, **kwargs)
 
 
@@ -289,16 +332,15 @@ class Package(models.Model):
         return (self.sold_price - self.list_price) or None
 
 
-class DayClose(models.Model):
-    """Chiusura di una giornata in un centro: gli scontrini battuti in cassa e i contanti Yakuza.
+class ReceiptDay(models.Model):
+    """Ciò che hanno in comune una chiusura di un centro e una giornata di un franchising.
 
     L'importo degli scontrini si scrive a mano oppure si legge dalla foto dello scontrino di chiusura
     (`detected_total`): in ogni caso `receipts_total` è quello confermato da chi chiude, e può
     correggere ciò che è stato letto. Le medie (infrasettimanale, settimanale, fine settimana) si
-    calcolano da queste chiusure.
+    calcolano da queste giornate.
     """
 
-    store = models.ForeignKey(Store, verbose_name="Centro", on_delete=models.PROTECT, related_name="closes")
     date = models.DateField("Giornata")
     receipts_total = models.DecimalField(
         "Totale scontrini battuti (€)",
@@ -323,13 +365,7 @@ class DayClose(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-date", "store__name"]
-        verbose_name = "chiusura di giornata"
-        verbose_name_plural = "chiusure di giornata"
-        constraints = [models.UniqueConstraint(fields=["store", "date"], name="one_close_per_store_per_day")]
-
-    def __str__(self):
-        return f"{self.store} – {self.date:%d/%m/%Y}"
+        abstract = True
 
     @property
     def has_photo(self):
@@ -346,6 +382,60 @@ class DayClose(models.Model):
         if self.detected_total is None:
             return "typed"
         return "read" if self.detected_total == self.receipts_total else "corrected"
+
+
+class DayClose(ReceiptDay):
+    """Chiusura di una giornata in un centro: gli scontrini battuti in cassa e i contanti Yakuza."""
+
+    store = models.ForeignKey(Store, verbose_name="Centro", on_delete=models.PROTECT, related_name="closes")
+
+    class Meta:
+        ordering = ["-date", "store__name"]
+        verbose_name = "chiusura di giornata"
+        verbose_name_plural = "chiusure di giornata"
+        constraints = [models.UniqueConstraint(fields=["store", "date"], name="one_close_per_store_per_day")]
+
+    def __str__(self):
+        return f"{self.store} – {self.date:%d/%m/%Y}"
+
+
+class FranchiseDay(ReceiptDay):
+    """Una giornata di un punto in franchising: scontrini e Yakuza come i centri, più contanti e carta,
+    le spese e le note della giornata."""
+
+    franchise = models.ForeignKey(Franchise, verbose_name="Punto", on_delete=models.PROTECT, related_name="days")
+    cash_total = models.DecimalField(
+        "Contanti (€)", max_digits=10, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(Decimal("0"))]
+    )
+    card_total = models.DecimalField(
+        "Carta (€)", max_digits=10, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(Decimal("0"))]
+    )
+    expenses = models.DecimalField(
+        "Spese (€)", max_digits=10, decimal_places=2, default=Decimal("0.00"), validators=[MinValueValidator(Decimal("0"))]
+    )
+    expenses_note = models.CharField("Descrizione delle spese", max_length=200, blank=True)
+    notes = models.TextField("Note", max_length=2000, blank=True)
+
+    class Meta:
+        ordering = ["-date", "franchise__name"]
+        verbose_name = "giornata del franchising"
+        verbose_name_plural = "giornate del franchising"
+        constraints = [models.UniqueConstraint(fields=["franchise", "date"], name="one_day_per_franchise")]
+
+    def __str__(self):
+        return f"{self.franchise} – {self.date:%d/%m/%Y}"
+
+    @property
+    def net_total(self):
+        """Incasso della giornata (scontrini più Yakuza) meno le spese."""
+        return self.day_total - self.expenses
+
+    @property
+    def payments_mismatch(self):
+        """Contanti e carta scritti entrambi ma la loro somma non torna con gli scontrini."""
+        if self.cash_total is None or self.card_total is None:
+            return False
+        return self.cash_total + self.card_total != self.receipts_total
 
 
 @receiver(post_delete, sender=Package)
@@ -366,8 +456,9 @@ def delete_package_files(sender, instance, **kwargs):
 
 
 @receiver(post_delete, sender=DayClose)
+@receiver(post_delete, sender=FranchiseDay)
 def delete_receipt_photo(sender, instance, **kwargs):
-    """Elimina la foto dello scontrino dal disco quando la chiusura viene eliminata (anche dall'admin)."""
+    """Elimina la foto dello scontrino dal disco quando la giornata viene eliminata (anche dall'admin)."""
     if not (instance.photo and instance.photo.name):
         return
     storage, name = instance.photo.storage, instance.photo.name

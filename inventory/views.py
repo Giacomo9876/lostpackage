@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Count, DecimalField, F, Q, Sum, Value
+from django.db.models import Count, DecimalField, F, Max, Q, Sum, Value
 from django.db.models.functions import Abs
 from django.http import FileResponse, Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -133,6 +133,14 @@ def _dashboard_common(request, period):
     }
 
 
+def _franchise_cards(scope):
+    """I punti in franchising per la Home dei titolari: solo l'ultima giornata, i numeri restano a parte."""
+    last = dict(
+        scope.franchise_days().values("franchise_id").annotate(last=Max("date")).values_list("franchise_id", "last")
+    )
+    return [(item, last.get(item.pk)) for item in scope.franchises()]
+
+
 def dashboard(request):
     """Home: i titolari vedono tutti i centri, lo store manager il proprio."""
     scope = request.scope
@@ -159,6 +167,7 @@ def dashboard(request):
     context = {
         **data,
         "cards": cards,
+        "franchise_cards": _franchise_cards(scope),
         "total": total,
         "insights": stats.insights(data["rows"], total, period, data["today"]),
         "revenue_change": stats.change_pct(total.revenue, total_before.revenue),
@@ -381,6 +390,7 @@ class ReceiptsView(TemplateView):
             store=store,
             stores=scope.stores(),
             average=average,
+            chart=averages.chart_rows(average),
             by_store=by_store,
             closes=self.with_links(listed[: averages.LIST_LIMIT], scope),
             more=len(listed) > averages.LIST_LIMIT,
@@ -413,24 +423,48 @@ class ReceiptsView(TemplateView):
         return closes
 
 
-class CloseDayView(DayMixin, StoreChoiceMixin, TemplateView):
-    """Aggiunge o corregge la chiusura di una giornata: importo scritto o letto dalla foto, contanti Yakuza.
+class DayEntryMixin:
+    """Aggiunge o corregge una giornata di scontrini: di un centro (chiusura) o di un punto in franchising.
 
-    Il titolare che aggiunge una giornata la sceglie dentro al modulo: il giorno che vede è quello che si
-    salva, e se quel giorno è già chiuso non si sovrascrive nulla (lo si apre per correggerlo). Una
-    giornata già chiusa, aperta da «Modifica», si corregge e basta: il suo giorno non cambia. Lo store
-    manager lavora su oggi e ieri con i due pulsanti in alto.
+    Chi può scegliere la giornata (il titolare, chi è in franchising) la sceglie dentro al modulo: il giorno
+    che vede è quello che si salva, e se quel giorno è già chiuso non si sovrascrive nulla (lo si apre per
+    correggerlo). Una giornata già chiusa, aperta da «Modifica», si corregge e basta: il suo giorno non
+    cambia. Lo store manager lavora su oggi e ieri con i due pulsanti in alto.
+
+    Le sottoclassi dicono dove sta la giornata: `place`, `current()`, `page_url()` e i nomi delle pagine.
     """
 
     template_name = "inventory/close_day.html"
-    choose_title = "Scontrini: scegli il centro"
+    form_class = CloseDayForm
+    list_url_name = "receipts"
+    day_url_name = "close_day"
+    photo_url_name = "receipt_photo"
+    delete_url_name = "close_delete"
+    page_title = "Scontrini della giornata"
+
+    @property
+    def place(self):
+        raise NotImplementedError
 
     def current(self, day):
-        return self.request.scope.closes().filter(store=self.store, date=day).first()
+        raise NotImplementedError
+
+    def page_url(self, name, **params):
+        raise NotImplementedError
+
+    def change_place_url(self):
+        """Dove si cambia centro o punto (solo per il titolare); None se non si può cambiare."""
+        return None
+
+    def may_pick_day(self):
+        return self.request.scope.is_owner
+
+    def initial_for(self, close):
+        return {"receipts_total": close.receipts_total, "yakuza_cash": close.yakuza_cash or None}
 
     def adding(self, day):
-        """Il titolare sta aggiungendo una giornata (e la sceglie nel modulo) invece di correggerne una."""
-        if not self.request.scope.is_owner:
+        """Si sta aggiungendo una giornata (scelta nel modulo) invece di correggerne una già chiusa."""
+        if not self.may_pick_day():
             return False
         return "nuova" in self.request.GET or self.current(day) is None
 
@@ -444,30 +478,38 @@ class CloseDayView(DayMixin, StoreChoiceMixin, TemplateView):
         if form is None:
             initial = {}
             if close:
-                initial = {"receipts_total": close.receipts_total, "yakuza_cash": close.yakuza_cash or None}
+                initial = self.initial_for(close)
             elif adding and self.current(day) is None:
                 initial = {"day": day}  # con «nuova» e il giorno già chiuso, la giornata si sceglie
-            form = CloseDayForm(user=self.request.user, initial=initial)
+            form = self.form_class(user=self.request.user, initial=initial)
         conflict = kwargs.get("conflict")
+        photo_url = None
+        if close and close.has_photo:
+            photo_url = f"{reverse(f'inventory:{self.photo_url_name}', args=[close.pk])}?v={int(close.updated_at.timestamp())}"
         context.update(
-            store=self.store,
+            place=self.place,
+            page_title=self.page_title,
             day=day,
             adding=adding,
+            may_pick_day=self.may_pick_day(),
             is_today=day == today,
             is_yesterday=day == today - timedelta(days=1),
             yesterday=today - timedelta(days=1),
             close=close,
             form=form,
             ocr_available=ocr.available(),
-            back_url=self.store_url("receipts"),
-            new_url=self.store_url("close_day", nuova=1),
+            back_url=self.page_url(self.list_url_name),
+            new_url=self.page_url(self.day_url_name, nuova=1),
+            change_place_url=self.change_place_url(),
+            photo_url=photo_url,
+            delete_url=reverse(f"inventory:{self.delete_url_name}", args=[close.pk]) if close else None,
             conflict=conflict,
-            conflict_url=self.store_url("close_day", data=conflict.date.isoformat()) if conflict else None,
+            conflict_url=self.page_url(self.day_url_name, data=conflict.date.isoformat()) if conflict else None,
         )
         return context
 
     def chosen_day(self, form):
-        """Il giorno scelto dal titolare nel modulo, controllato; None (con l'errore nel modulo) se non va bene."""
+        """Il giorno scelto nel modulo, controllato; None (con l'errore nel modulo) se non va bene."""
         chosen = form.cleaned_data.get("day")
         if chosen is None:
             form.add_error("day", "Scegli la giornata dello scontrino.")
@@ -485,8 +527,8 @@ class CloseDayView(DayMixin, StoreChoiceMixin, TemplateView):
         if requested and requested != day.isoformat():
             # Un giorno che non si può toccare (o non valido) non diventa «oggi» in silenzio.
             messages.error(request, "Quella giornata non si può modificare: non ho salvato nulla.")
-            return HttpResponseRedirect(self.store_url("receipts"))
-        form = CloseDayForm(request.POST, request.FILES, user=request.user)
+            return HttpResponseRedirect(self.page_url(self.list_url_name))
+        form = self.form_class(request.POST, request.FILES, user=request.user)
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
         if self.adding(day):
@@ -501,7 +543,7 @@ class CloseDayView(DayMixin, StoreChoiceMixin, TemplateView):
             if form.errors:
                 return self.render_to_response(self.get_context_data(form=form, conflict=conflict))
             day = chosen
-        close = form.save(self.store, day)
+        close = form.save(self.place, day)
         label = date_format(day, "j F Y").lower()
         if form.filled_from_photo:
             messages.success(
@@ -514,7 +556,33 @@ class CloseDayView(DayMixin, StoreChoiceMixin, TemplateView):
             if close.yakuza_cash:
                 text += f" e contanti Yakuza {euro(close.yakuza_cash)} €"
             messages.success(request, text + ".")
-        return HttpResponseRedirect(self.store_url("receipts"))
+        return HttpResponseRedirect(self.page_url(self.list_url_name))
+
+
+class CloseDayView(DayEntryMixin, DayMixin, StoreChoiceMixin, TemplateView):
+    """Aggiunge o corregge la chiusura di una giornata di un centro (vedi `DayEntryMixin`)."""
+
+    choose_title = "Scontrini: scegli il centro"
+
+    @property
+    def place(self):
+        return self.store
+
+    def current(self, day):
+        return self.request.scope.closes().filter(store=self.store, date=day).first()
+
+    def page_url(self, name, **params):
+        return self.store_url(name, **params)
+
+    def change_place_url(self):
+        if not self.request.scope.is_owner:
+            return None
+        return reverse("inventory:close_day") + ("?nuova=1" if self.adding(self.get_day()) else "")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["store"] = self.store
+        return context
 
 
 @require_POST
@@ -530,19 +598,23 @@ def close_delete(request, pk):
     return redirect(f"{url}?centro={store_id}" if request.scope.is_owner else url)
 
 
-@require_GET
-def receipt_photo(request, pk):
-    """Foto dello scontrino di chiusura: solo a chi può vedere quella chiusura (il middleware blocca gli anonimi)."""
-    close = get_object_or_404(request.scope.closes().only("photo"), pk=pk)
-    if not close.photo:
+def serve_receipt_photo(day):
+    """La foto dello scontrino di una giornata già controllata da chi chiama (perimetro dello Scope)."""
+    if not day.photo:
         raise Http404
     try:
-        handle = close.photo.open("rb")
+        handle = day.photo.open("rb")
     except FileNotFoundError:
         raise Http404
     response = FileResponse(handle, content_type="image/jpeg")
     response["Cache-Control"] = "private, max-age=86400"
     return response
+
+
+@require_GET
+def receipt_photo(request, pk):
+    """Foto dello scontrino di chiusura: solo a chi può vedere quella chiusura (il middleware blocca gli anonimi)."""
+    return serve_receipt_photo(get_object_or_404(request.scope.closes().only("photo"), pk=pk))
 
 
 @never_cache
