@@ -92,7 +92,7 @@ AMOUNT = re.compile(r"(?<![\d.,])(\d{1,3}(?:[. ]\d{3})+|\d+)\s?[,.]\s?(\d{2})(?!
 
 # Righe che dicono il totale della giornata o del documento: la prima che c'è vale.
 STRONG = re.compile(
-    r"total[ei]\s+(?:complessiv|giornalier|generale|incasso|corrispettiv|euro|eur\b)"
+    r"total[ei]\s+(?:complessiv|giornalier|generale|incasso|corrispettiv|contabil|euro|eur\b)"
     r"|incasso\s+(?:giornalier|total)"
     r"|corrispettiv\w*\s+(?:giornalier|total)"
 )

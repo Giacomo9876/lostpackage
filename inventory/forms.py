@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from django import forms
@@ -5,6 +6,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from . import ocr
 from .images import process_receipt, process_upload
@@ -202,13 +204,26 @@ class ClosingEntryForm(forms.Form):
 MAX_CLOSE_AMOUNT = Decimal("9999999.99")
 
 
+# Una giornata più vecchia di così è quasi certamente un anno sbagliato (0202, 2002…).
+EARLIEST_CLOSE_DAY = date(2020, 1, 1)
+
+
 class CloseDayForm(forms.Form):
     """La chiusura di una giornata: scontrini battuti (scritti o letti dalla foto) e contanti Yakuza.
 
     L'importo degli scontrini si può scrivere, oppure lasciare vuoto con la foto dello scontrino: allora
     lo si legge dalla foto (se la lettura è disponibile). Quello che resta salvato è sempre l'importo
     confermato da chi chiude; `detected_total` conserva ciò che era stato letto, per vedere le correzioni.
+
+    `day` serve solo al titolare che aggiunge una giornata: la sceglie qui, dentro al modulo, così il giorno
+    che vede è quello che viene salvato. Se usarlo (e come controllarlo) lo decide la vista.
     """
+
+    day = forms.DateField(
+        label="Giornata dello scontrino",
+        required=False,
+        widget=forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}),
+    )
 
     receipts_total = forms.DecimalField(
         label="Totale degli scontrini (€)",
@@ -243,6 +258,7 @@ class CloseDayForm(forms.Form):
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
+        self.fields["day"].widget.attrs.update(min=EARLIEST_CLOSE_DAY.isoformat(), max=timezone.localdate().isoformat())
         self._receipt = None  # la foto nuova, già ricodificata (ContentFile JPEG)
         self.detected = None  # importo letto dalla nuova foto
         self.filled_from_photo = False  # l'importo è stato preso dalla foto perché non era scritto

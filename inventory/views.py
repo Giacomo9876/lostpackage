@@ -17,7 +17,7 @@ from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
 from . import averages, ocr, stats
-from .forms import BatchForm, CloseDayForm, ClosingEntryForm, PackageForm, PriceForm, SaleForm, SearchForm
+from .forms import EARLIEST_CLOSE_DAY, BatchForm, CloseDayForm, ClosingEntryForm, PackageForm, PriceForm, SaleForm, SearchForm
 from .images import process_receipt
 from .models import Batch, Package, ShopSettings
 
@@ -386,9 +386,17 @@ class ReceiptsView(TemplateView):
             more=len(listed) > averages.LIST_LIMIT,
             list_limit=averages.LIST_LIMIT,
             show_private=scope.is_owner,
-            add_url=reverse("inventory:close_day") + (f"?centro={store.pk}" if scope.is_owner and store else ""),
+            add_url=self.add_url(scope, store),
         )
         return context
+
+    @staticmethod
+    def add_url(scope, store):
+        """Il titolare aggiunge una giornata scegliendola nel modulo; il manager parte da oggi."""
+        if not scope.is_owner:
+            return reverse("inventory:close_day")
+        params = {"centro": store.pk, "nuova": 1} if store else {"nuova": 1}
+        return f"{reverse('inventory:close_day')}?{urlencode(params)}"
 
     @staticmethod
     def with_links(closes, scope):
@@ -406,7 +414,13 @@ class ReceiptsView(TemplateView):
 
 
 class CloseDayView(DayMixin, StoreChoiceMixin, TemplateView):
-    """Aggiunge o corregge la chiusura di una giornata: importo scritto o letto dalla foto, contanti Yakuza."""
+    """Aggiunge o corregge la chiusura di una giornata: importo scritto o letto dalla foto, contanti Yakuza.
+
+    Il titolare che aggiunge una giornata la sceglie dentro al modulo: il giorno che vede è quello che si
+    salva, e se quel giorno è già chiuso non si sovrascrive nulla (lo si apre per correggerlo). Una
+    giornata già chiusa, aperta da «Modifica», si corregge e basta: il suo giorno non cambia. Lo store
+    manager lavora su oggi e ieri con i due pulsanti in alto.
+    """
 
     template_name = "inventory/close_day.html"
     choose_title = "Scontrini: scegli il centro"
@@ -414,38 +428,81 @@ class CloseDayView(DayMixin, StoreChoiceMixin, TemplateView):
     def current(self, day):
         return self.request.scope.closes().filter(store=self.store, date=day).first()
 
+    def adding(self, day):
+        """Il titolare sta aggiungendo una giornata (e la sceglie nel modulo) invece di correggerne una."""
+        if not self.request.scope.is_owner:
+            return False
+        return "nuova" in self.request.GET or self.current(day) is None
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         day = self.get_day()
         today = timezone.localdate()
-        close = self.current(day)
+        adding = self.adding(day)
+        close = None if adding else self.current(day)
         form = kwargs.get("form")
         if form is None:
             initial = {}
             if close:
                 initial = {"receipts_total": close.receipts_total, "yakuza_cash": close.yakuza_cash or None}
+            elif adding and self.current(day) is None:
+                initial = {"day": day}  # con «nuova» e il giorno già chiuso, la giornata si sceglie
             form = CloseDayForm(user=self.request.user, initial=initial)
+        conflict = kwargs.get("conflict")
         context.update(
             store=self.store,
             day=day,
+            adding=adding,
             is_today=day == today,
             is_yesterday=day == today - timedelta(days=1),
             yesterday=today - timedelta(days=1),
-            today_iso=today.isoformat(),
             close=close,
             form=form,
             ocr_available=ocr.available(),
             back_url=self.store_url("receipts"),
+            new_url=self.store_url("close_day", nuova=1),
+            conflict=conflict,
+            conflict_url=self.store_url("close_day", data=conflict.date.isoformat()) if conflict else None,
         )
         return context
 
+    def chosen_day(self, form):
+        """Il giorno scelto dal titolare nel modulo, controllato; None (con l'errore nel modulo) se non va bene."""
+        chosen = form.cleaned_data.get("day")
+        if chosen is None:
+            form.add_error("day", "Scegli la giornata dello scontrino.")
+        elif chosen > timezone.localdate():
+            form.add_error("day", "La giornata non può essere nel futuro.")
+        elif chosen < EARLIEST_CLOSE_DAY:
+            form.add_error("day", "Questa data è troppo indietro: controlla l'anno.")
+        else:
+            return chosen
+        return None
+
     def post(self, request, *args, **kwargs):
         day = self.get_day()
+        requested = request.GET.get("data")
+        if requested and requested != day.isoformat():
+            # Un giorno che non si può toccare (o non valido) non diventa «oggi» in silenzio.
+            messages.error(request, "Quella giornata non si può modificare: non ho salvato nulla.")
+            return HttpResponseRedirect(self.store_url("receipts"))
         form = CloseDayForm(request.POST, request.FILES, user=request.user)
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
+        if self.adding(day):
+            chosen = self.chosen_day(form)
+            conflict = self.current(chosen) if chosen else None
+            if conflict:
+                form.add_error(
+                    "day",
+                    f"Il {date_format(chosen, 'j F Y').lower()} è già chiuso ({euro(conflict.receipts_total)} € di scontrini): "
+                    "non ho salvato nulla. Aprilo per correggerlo.",
+                )
+            if form.errors:
+                return self.render_to_response(self.get_context_data(form=form, conflict=conflict))
+            day = chosen
         close = form.save(self.store, day)
-        label = date_format(day, "j F")
+        label = date_format(day, "j F Y").lower()
         if form.filled_from_photo:
             messages.success(
                 request,
@@ -468,7 +525,7 @@ def close_delete(request, pk):
         raise PermissionDenied
     store_id, day = close.store_id, close.date
     close.delete()
-    messages.success(request, f"Chiusura del {date_format(day, 'j F')} eliminata.")
+    messages.success(request, f"Chiusura del {date_format(day, 'j F Y').lower()} eliminata.")
     url = reverse("inventory:receipts")
     return redirect(f"{url}?centro={store_id}" if request.scope.is_owner else url)
 

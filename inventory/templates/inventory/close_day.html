@@ -5,29 +5,35 @@
 <h1>{% if close %}Modifica la giornata{% else %}Scontrini della giornata{% endif %}</h1>
 <p class="sub">
   <strong>{{ store.label }}</strong>
-  {% if scope.is_owner %}· <a href="{% url 'inventory:close_day' %}">cambia centro</a>{% endif %}
+  {% if scope.is_owner %}· <a href="{% url 'inventory:close_day' %}{% if adding %}?nuova=1{% endif %}">cambia centro</a>{% endif %}
 </p>
 
-<nav class="chips" aria-label="Giornata">
-  <a class="chip" href="{% querystring data=None %}"{% if is_today %} aria-current="true"{% endif %}>Oggi</a>
-  <a class="chip" href="{% querystring data=yesterday.isoformat %}"{% if is_yesterday %} aria-current="true"{% endif %}>Ieri</a>
-</nav>
-{% if scope.is_owner %}
-  <form method="get" class="day-pick">
-    <input type="hidden" name="centro" value="{{ store.pk }}">
-    <div class="field">
-      <label for="id_data">Un'altra giornata</label>
-      <input type="date" id="id_data" name="data" value="{{ day|date:'Y-m-d' }}" max="{{ today_iso }}" required>
-    </div>
-    <button class="btn btn-secondary" type="submit">Apri</button>
-  </form>
+{% if not adding %}
+  <nav class="chips" aria-label="Giornata">
+    <a class="chip" href="{% querystring data=None nuova=None %}"{% if is_today %} aria-current="true"{% endif %}>Oggi</a>
+    <a class="chip" href="{% querystring data=yesterday.isoformat nuova=None %}"{% if is_yesterday %} aria-current="true"{% endif %}>Ieri</a>
+  </nav>
+  {% if scope.is_owner %}
+    <p class="sub"><a href="{{ new_url }}">Aggiungi un'altra giornata</a></p>
+  {% endif %}
 {% endif %}
-<p class="summary">{{ day|date:"l j F Y"|lower }}{% if close %} · già chiusa{% endif %}</p>
 
 <form method="post" enctype="multipart/form-data" class="stack card" data-submit-once data-receipt-form
       {% if ocr_available %}data-read-url="{% url 'inventory:receipt_read' %}"{% endif %}>
   {% csrf_token %}
   {% for error in form.non_field_errors %}<p class="error" role="alert">{{ error }}</p>{% endfor %}
+
+  {% if adding %}
+    <div class="field{% if form.day.errors %} has-error{% endif %}">
+      <label for="{{ form.day.id_for_label }}">{{ form.day.label }}</label>
+      {{ form.day }}
+      {% for error in form.day.errors %}<p class="error" role="alert">{{ error }}</p>{% endfor %}
+      {% if conflict_url %}<p class="conflict"><a class="btn btn-secondary" href="{{ conflict_url }}">Apri il {{ conflict.date|date:"j F Y"|lower }}</a></p>{% endif %}
+      <p class="hint">La chiusura si salva su questo giorno. Se è già chiuso non sovrascrivo nulla: lo apri e lo correggi.</p>
+    </div>
+  {% else %}
+    <h2 class="card-day">{{ day|date:"l j F Y"|lower|capfirst }}{% if close %} <span class="tag tag-exact">già chiusa</span>{% endif %}</h2>
+  {% endif %}
 
   <div class="field{% if form.photo.errors %} has-error{% endif %}">
     {{ form.photo }}

@@ -40,6 +40,21 @@ class FindTotalTests(SimpleTestCase):
         self.assertEqual(reading.amount, D("947.50"))
         self.assertEqual(reading.line, "TOTALE COMPLESSIVO 947,50")
 
+    def test_the_closing_report_of_a_real_register(self):
+        # Trascritto da una foto vera (Tor Vergata): il totale è «Totale Contabile», lo sbilancio no.
+        text = (
+            "Totale CHIUS.OPERATORE 0,00\nDettaglio Contabile\n"
+            "CONTANTI 438,66\nCARTA 2193,60\nVALUTE 0,00\nTICKET 0,00\nNON RISCOSSO 0,00\n"
+            "ALTRI PAG. ELETTRONICI 0,00\nBONIFICO 0,00\nASSEGNO 0,00\n"
+            "Totale Contabile 2632 ,26\nSbilancio (+/-) -2632,26\n"
+        )
+        reading = ocr.find_total(text)
+        self.assertEqual((reading.amount, reading.line), (D("2632.26"), "Totale Contabile 2632,26"))
+
+    def test_the_accounting_total_wins_over_an_operator_total(self):
+        text = "Totale CHIUS.OPERATORE 5000,00\nTotale Contabile 2632,26\n"
+        self.assertEqual(self.total(text), D("2632.26"))
+
     def test_the_parts_of_the_total_are_never_taken_for_it(self):
         text = "Totale contanti 612,50\nTotale elettronico 335,00\nIVA 22% 170,86\nImponibile 776,64\n"
         self.assertIsNone(self.total(text))

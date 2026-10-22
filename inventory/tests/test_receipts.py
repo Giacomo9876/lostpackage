@@ -19,6 +19,10 @@ from .helpers import BaseCase, make_image, make_user, store
 D = Decimal
 TODAY = date(2026, 10, 21)  # mercoledì
 YESTERDAY = TODAY - timedelta(days=1)
+
+
+def YESTERDAY_REAL():  # noqa: N802 - ieri rispetto all'orologio vero (i test senza data fissa)
+    return timezone.localdate() - timedelta(days=1)
 MON_5, TUE_6, SAT_10, SUN_11 = (date(2026, 10, d) for d in (5, 6, 10, 11))
 
 READING = ocr.Reading(D("947.50"), "TOTALE COMPLESSIVO 947,50")
@@ -208,19 +212,32 @@ class SaveTests(ReceiptCase):
         self.assertEqual(DayClose.objects.get().receipts_total, D("0.00"))
 
     def test_a_manager_works_on_yesterday_but_not_on_older_days(self):
-        self.save({"receipts_total": "10"}, url=f"{CLOSE}?data={YESTERDAY.isoformat()}")
+        self.save({"receipts_total": "10"}, url=f"{CLOSE}?data={YESTERDAY_REAL().isoformat()}")
         old = timezone.localdate() - timedelta(days=3)
-        self.save({"receipts_total": "20"}, url=f"{CLOSE}?data={old.isoformat()}")
-        self.assertFalse(DayClose.objects.filter(date=old).exists())
-        self.assertEqual(
-            sorted(DayClose.objects.values_list("date", "receipts_total")),
-            sorted([(timezone.localdate() - timedelta(days=1), D("10.00")), (timezone.localdate(), D("20.00"))]),
-        )
+        response = self.save({"receipts_total": "20"}, url=f"{CLOSE}?data={old.isoformat()}", follow=True)
+        # un giorno che non si può toccare non diventa «oggi» in silenzio: non si salva nulla
+        self.assertTrue(any("non ho salvato nulla" in text for text in self.messages(response)))
+        self.assertEqual(list(DayClose.objects.values_list("date", "receipts_total")), [(YESTERDAY_REAL(), D("10.00"))])
+
+    def test_an_invalid_or_future_day_in_the_address_saves_nothing(self):
+        future = timezone.localdate() + timedelta(days=1)
+        for raw in ("abc", "2026-13-45", future.isoformat()):
+            with self.subTest(raw=raw):
+                response = self.save({"receipts_total": "20"}, url=f"{CLOSE}?data={raw}")
+                self.assertRedirects(response, RECEIPTS, fetch_redirect_response=False)
+        self.assertFalse(DayClose.objects.exists())
+
+    def test_a_manager_cannot_choose_the_day_in_the_form(self):
+        old = timezone.localdate() - timedelta(days=30)
+        self.save({"receipts_total": "20", "day": old.isoformat()})
+        self.assertEqual(DayClose.objects.get().date, timezone.localdate())
 
     def test_an_owner_fills_any_past_day_of_the_chosen_center(self):
         self.as_owner()
         old = timezone.localdate() - timedelta(days=30)
-        response = self.save({"receipts_total": "77"}, url=f"{CLOSE}?centro={store('Globo').pk}&data={old.isoformat()}")
+        response = self.save(
+            {"receipts_total": "77", "day": old.isoformat()}, url=f"{CLOSE}?centro={store('Globo').pk}&nuova=1"
+        )
         self.assertRedirects(response, f"{RECEIPTS}?centro={store('Globo').pk}", fetch_redirect_response=False)
         close = DayClose.objects.get()
         self.assertEqual((close.store, close.date, close.closed_by), (store("Globo"), old, self.owner))
@@ -231,6 +248,99 @@ class SaveTests(ReceiptCase):
 
     def test_the_form_needs_post(self):
         self.assertEqual(self.client.put(CLOSE, {"receipts_total": "1"}).status_code, 405)
+
+
+class OwnerChoosesTheDayTests(ReceiptCase):
+    """Il titolare aggiunge giornate passate: il giorno scelto nel modulo è quello salvato, senza sovrascrivere."""
+
+    def setUp(self):
+        super().setUp()
+        self.as_owner()
+        self.globo = store("Globo").pk
+        self.url = f"{CLOSE}?centro={self.globo}"
+        self.add_url = f"{CLOSE}?centro={self.globo}&nuova=1"
+        self.today = timezone.localdate()
+        self.old = self.today - timedelta(days=12)
+
+    def test_the_day_chosen_in_the_form_is_the_day_saved(self):
+        # Il caso dello scontrino del 10 ottobre finito su «oggi»: la pagina era aperta su oggi.
+        response = self.client.get(self.url)
+        self.assertTrue(response.context["adding"])
+        self.assertContains(response, f'value="{self.today.isoformat()}"')
+        self.save({"day": self.old.isoformat(), "receipts_total": "2632,26"}, url=self.url)
+        close = DayClose.objects.get()
+        self.assertEqual((close.date, close.receipts_total), (self.old, D("2632.26")))
+        self.assertFalse(DayClose.objects.filter(date=self.today).exists())
+
+    def test_the_date_field_is_inside_the_form_that_is_saved(self):
+        page = self.client.get(self.url).content.decode()
+        form = page[page.index('<form method="post" enctype="multipart/form-data"'):]
+        form = form[: form.index("</form>")]
+        self.assertIn('name="day"', form)
+        self.assertNotIn('name="data"', page)  # niente più selettore separato con «Apri»
+
+    def test_a_day_already_closed_is_never_overwritten(self):
+        existing = make_close(self.old, "500", "40", store_name="Globo")
+        response = self.save({"day": self.old.isoformat(), "receipts_total": "2632,26", "photo": upload()}, url=self.add_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("già chiuso", response.context["form"].errors["day"][0])
+        self.assertIn("non ho salvato nulla", response.context["form"].errors["day"][0])
+        self.assertEqual(response.context["conflict_url"], f"{CLOSE}?data={self.old.isoformat()}&centro={self.globo}")
+        self.assertContains(response, f"{CLOSE}?data={self.old.isoformat()}&amp;centro={self.globo}")
+        existing.refresh_from_db()
+        self.assertEqual((existing.receipts_total, existing.yakuza_cash, existing.has_photo), (D("500.00"), D("40.00"), False))
+        self.assertEqual(DayClose.objects.count(), 1)
+
+    def test_with_today_closed_the_page_edits_today_and_offers_to_add_another_day(self):
+        make_close(self.today, "100", store_name="Globo")
+        response = self.client.get(self.url)
+        self.assertFalse(response.context["adding"])
+        self.assertIsNotNone(response.context["close"])
+        self.assertNotContains(response, 'name="day"')
+        self.assertContains(response, "Aggiungi un'altra giornata")
+        self.assertContains(response, "già chiusa")
+
+    def test_adding_starts_blank_when_today_is_already_closed(self):
+        make_close(self.today, "100", store_name="Globo")
+        response = self.client.get(self.add_url)
+        self.assertTrue(response.context["adding"])
+        self.assertIsNone(response.context["close"])
+        self.assertNotContains(response, "Elimina questa chiusura")
+        self.assertIsNone(response.context["form"]["day"].value())
+        response = self.save({"receipts_total": "10"}, url=self.add_url)
+        self.assertEqual(response.context["form"].errors["day"], ["Scegli la giornata dello scontrino."])
+
+    def test_future_and_far_away_days_are_refused(self):
+        for raw, message in (
+            ((self.today + timedelta(days=1)).isoformat(), "nel futuro"),
+            ("2019-12-31", "troppo indietro"),
+            ("0202-10-10", "troppo indietro"),
+            ("10-10", "valida"),
+        ):
+            with self.subTest(raw=raw):
+                response = self.save({"day": raw, "receipts_total": "10"}, url=self.add_url)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(message, " ".join(response.context["form"].errors["day"]))
+        self.assertFalse(DayClose.objects.exists())
+
+    def test_the_italian_date_format_works_too(self):
+        self.save({"day": self.old.strftime("%d/%m/%Y"), "receipts_total": "10"}, url=self.add_url)
+        self.assertEqual(DayClose.objects.get().date, self.old)
+
+    def test_editing_a_closed_day_keeps_its_day(self):
+        close = make_close(self.old, "500", store_name="Globo")
+        url = f"{CLOSE}?centro={self.globo}&data={self.old.isoformat()}"
+        response = self.client.get(url)
+        self.assertFalse(response.context["adding"])
+        self.save({"receipts_total": "450", "day": self.today.isoformat()}, url=url)  # il giorno nel modulo non conta
+        close.refresh_from_db()
+        self.assertEqual((close.date, close.receipts_total), (self.old, D("450.00")))
+        self.assertEqual(DayClose.objects.count(), 1)
+
+    def test_the_message_names_the_day_saved(self):
+        response = self.save({"day": self.old.isoformat(), "receipts_total": "10"}, url=self.url, follow=True)
+        self.assertIn(f"Giornata del {self.old.day} ", self.messages(response)[0])
+        self.assertIn(str(self.old.year), self.messages(response)[0])
 
 
 class PhotoUploadTests(ReceiptCase):
@@ -378,8 +488,12 @@ class ReadingTests(ReceiptCase):
         data = self.client.post(READ, {"photo": upload()}).json()
         reader.reset_mock()
         self.as_owner()
-        self.save({"receipts_total": "", "photo": upload(), "reading_token": data["token"]}, url=f"{CLOSE}?centro={store('Globo').pk}")
+        self.save(
+            {"receipts_total": "", "photo": upload(), "reading_token": data["token"], "day": timezone.localdate().isoformat()},
+            url=f"{CLOSE}?centro={store('Globo').pk}",
+        )
         reader.assert_called_once()
+        self.assertEqual(DayClose.objects.get().store, store("Globo"))
 
     def test_a_forged_or_expired_token_is_ignored(self):
         reader = self.fake_ocr()
@@ -682,9 +796,10 @@ class ReceiptsPageTests(ReceiptCase):
     def test_the_add_button_goes_to_the_form_of_the_center(self):
         self.assertEqual(self.client.get(RECEIPTS).context["add_url"], CLOSE)
         self.as_owner()
-        self.assertEqual(self.client.get(RECEIPTS).context["add_url"], CLOSE)
+        self.assertEqual(self.client.get(RECEIPTS).context["add_url"], f"{CLOSE}?nuova=1")
         self.assertEqual(
-            self.client.get(RECEIPTS, {"centro": store("Globo").pk}).context["add_url"], f"{CLOSE}?centro={store('Globo').pk}"
+            self.client.get(RECEIPTS, {"centro": store("Globo").pk}).context["add_url"],
+            f"{CLOSE}?centro={store('Globo').pk}&nuova=1",
         )
 
     def test_with_no_closes_there_is_an_invitation(self):
