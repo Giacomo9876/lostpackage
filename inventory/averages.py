@@ -127,9 +127,9 @@ def chart_rows(average):
     return rows
 
 
-def closing_rows(closes, period):
-    """Le chiusure del periodo come righe (centro, giorno, scontrini, Yakuza), pronte per `compute`."""
-    return list(stats.closes_in(closes, period).values_list("store_id", "date", "receipts_total", "yakuza_cash"))
+def closing_rows(closes, period, key="store_id"):
+    """Le giornate del periodo come righe (centro o punto, giorno, scontrini, Yakuza), pronte per `compute`."""
+    return list(stats.closes_in(closes, period).values_list(key, "date", "receipts_total", "yakuza_cash"))
 
 
 def compute(rows, period, today):
