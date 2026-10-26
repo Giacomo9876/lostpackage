@@ -209,7 +209,7 @@ EARLIEST_CLOSE_DAY = date(2020, 1, 1)
 
 
 class CloseDayForm(forms.Form):
-    """La chiusura di una giornata: scontrini battuti (scritti o letti dalla foto) e contanti Yakuza.
+    """La chiusura di una giornata: scontrini battuti (scritti o letti dalla foto) e Yakuza.
 
     L'importo degli scontrini si può scrivere, oppure lasciare vuoto con la foto dello scontrino: allora
     lo si legge dalla foto (se la lettura è disponibile). Quello che resta salvato è sempre l'importo
@@ -236,14 +236,13 @@ class CloseDayForm(forms.Form):
         widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
     )
     yakuza_cash = forms.DecimalField(
-        label="Contanti Yakuza (€, facoltativi)",
+        label="Yakuza",
         required=False,
         min_value=Decimal("0"),
         max_value=MAX_CLOSE_AMOUNT,
         max_digits=10,
         decimal_places=2,
         localize=True,
-        help_text="Contanti incassati senza scontrino, in più rispetto agli scontrini.",
         widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
     )
     photo = forms.FileField(

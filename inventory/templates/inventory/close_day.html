@@ -69,7 +69,6 @@
     <label for="{{ form.yakuza_cash.id_for_label }}">{{ form.yakuza_cash.label }}</label>
     <div class="readout-input">{{ form.yakuza_cash }}<span>€</span></div>
     {% for error in form.yakuza_cash.errors %}<p class="error">{{ error }}</p>{% endfor %}
-    <p class="hint">{{ form.yakuza_cash.help_text }}</p>
   </div>
 
   {% if franchise_fields %}
@@ -112,7 +111,7 @@
 
 {% if close %}
   <form method="post" action="{{ delete_url }}" class="delete-close"
-        data-confirm="Eliminare la giornata del {{ day|date:'j F'|lower }}? Si perdono anche la foto e i contanti Yakuza.">
+        data-confirm="Eliminare la giornata del {{ day|date:'j F'|lower }}? Si perdono anche la foto e lo Yakuza.">
     {% csrf_token %}
     <button class="btn btn-quiet btn-danger-text" type="submit">Elimina questa giornata</button>
   </form>

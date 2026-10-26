@@ -99,7 +99,9 @@ class FormPageTests(ReceiptCase):
         self.assertContains(response, 'accept="image/*"')
         self.assertContains(response, 'capture="environment"')
         self.assertContains(response, 'enctype="multipart/form-data"')
-        self.assertContains(response, "Contanti Yakuza")
+        self.assertContains(response, '<label for="id_yakuza_cash">Yakuza</label>', html=False)
+        self.assertNotContains(response, "Contanti Yakuza")
+        self.assertNotContains(response, "senza scontrino")
 
     def test_without_reading_the_form_says_to_type_the_amount(self):
         response = self.client.get(CLOSE)
@@ -173,7 +175,7 @@ class SaveTests(ReceiptCase):
 
     def test_the_confirmation_message_mentions_yakuza_only_when_there_is_some(self):
         response = self.save({"receipts_total": "50", "yakuza_cash": "12,5"}, follow=True)
-        self.assertIn("scontrini 50,00 € e contanti Yakuza 12,50 €", self.messages(response)[0])
+        self.assertIn("scontrini 50,00 € e Yakuza 12,50 €", self.messages(response)[0])
         DayClose.objects.all().delete()
         response = self.save({"receipts_total": "50"}, follow=True)
         self.assertNotIn("Yakuza", self.messages(response)[0])
@@ -849,11 +851,11 @@ class ClosingPageYakuzaTests(ReceiptCase):
         close = make_close(timezone.localdate(), "100", "35")
         page = self.client.get(reverse("inventory:closing"))
         self.assertContains(page, "<strong>100,00 €</strong>")
-        self.assertNotContains(page, "più contanti Yakuza")
+        self.assertNotContains(page, "più Yakuza")
         self.assertEqual(page.context["close"].yakuza_cash, D("0.00"))
         self.as_owner()
         page = self.client.get(reverse("inventory:closing"), {"centro": close.store_id})
-        self.assertContains(page, "più contanti Yakuza 35,00 €")
+        self.assertContains(page, "più Yakuza 35,00 €")
 
 
 class LoginRequiredTests(ReceiptCase):

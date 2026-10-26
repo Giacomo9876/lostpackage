@@ -1,6 +1,6 @@
 """Le tre medie degli incassi, calcolate dalle chiusure di giornata.
 
-Ogni chiusura ha gli scontrini battuti e (solo per i titolari, che li vedono) i contanti Yakuza; la
+Ogni chiusura ha gli scontrini battuti e (solo per i titolari, che li vedono) lo Yakuza; la
 giornata vale la somma. Si calcolano tre medie:
 
 - **infrasettimanale**: media al giorno da lunedì a venerdì;

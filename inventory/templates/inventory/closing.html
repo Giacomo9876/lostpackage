@@ -79,7 +79,7 @@
   {% if close %}
     <p class="cassa-total">
       <strong>{{ close.receipts_total|floatformat:"2g" }} €</strong> di scontrini
-      {% if show_private and close.yakuza_cash %}<br>più contanti Yakuza {{ close.yakuza_cash|floatformat:"2g" }} €{% endif %}
+      {% if show_private and close.yakuza_cash %}<br>più Yakuza {{ close.yakuza_cash|floatformat:"2g" }} €{% endif %}
     </p>
     <p class="hint">Giornata chiusa{% if close.closed_by %} da {{ close.closed_by.get_username }}{% endif %} il {{ close.updated_at|date:"j F, H:i"|lower }}.</p>
     <a class="btn btn-secondary" href="{{ close_url }}">Modifica scontrini</a>

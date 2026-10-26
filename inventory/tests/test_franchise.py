@@ -298,7 +298,7 @@ class DayFormTests(FranchiseCase):
         )
         self.assertEqual((day.expenses_note, day.notes, day.closed_by), ("pulizie 30, cancelleria 12", "Pioveva, poca gente al mattino.", self.anna))
         self.assertEqual((day.day_total, day.net_total, day.payments_mismatch), (D("2752.26"), D("2710.26"), False))
-        self.assertIn("scontrini 2632,26 € e contanti Yakuza 120,00 €", self.messages(response)[0])
+        self.assertIn("scontrini 2632,26 € e Yakuza 120,00 €", self.messages(response)[0])
 
     def test_only_the_receipts_are_required(self):
         self.client.post(DAY, {"day": self.today.isoformat(), "receipts_total": "10"})

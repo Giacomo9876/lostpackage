@@ -252,7 +252,7 @@ class ClosingView(DayMixin, StoreChoiceMixin, TemplateView):
         )
         close = self.request.scope.closes().filter(store=self.store, date=day).first()
         if close and not self.request.scope.is_owner:
-            close.yakuza_cash = stats.ZERO  # solo in memoria: i manager non vedono i contanti Yakuza
+            close.yakuza_cash = stats.ZERO  # solo in memoria: i manager non vedono lo Yakuza
         context.update(
             store=self.store,
             day=day,
@@ -356,7 +356,7 @@ class ReceiptsView(TemplateView):
     """Le chiusure di giornata e le tre medie: infrasettimanale, settimanale, fine settimana.
 
     Il titolare vede tutti i centri (a confronto) o ne sceglie uno con ?centro=; lo store manager
-    il proprio. Ai manager i contanti Yakuza non arrivano nemmeno ai calcoli: ogni cifra è solo scontrini.
+    il proprio. Ai manager lo Yakuza non arriva nemmeno ai calcoli: ogni cifra è solo scontrini.
     """
 
     template_name = "inventory/receipts.html"
@@ -412,7 +412,7 @@ class ReceiptsView(TemplateView):
     def with_links(closes, scope):
         for close in closes:
             if not scope.is_owner:
-                close.yakuza_cash = stats.ZERO  # solo in memoria: i manager non vedono i contanti Yakuza
+                close.yakuza_cash = stats.ZERO  # solo in memoria: i manager non vedono lo Yakuza
             if scope.can_edit_day(close.date):
                 params = {"data": close.date.isoformat()}
                 if scope.is_owner:
@@ -554,7 +554,7 @@ class DayEntryMixin:
         else:
             text = f"Giornata del {label} salvata: scontrini {euro(close.receipts_total)} €"
             if close.yakuza_cash:
-                text += f" e contanti Yakuza {euro(close.yakuza_cash)} €"
+                text += f" e Yakuza {euro(close.yakuza_cash)} €"
             messages.success(request, text + ".")
         return HttpResponseRedirect(self.page_url(self.list_url_name))
 

@@ -349,7 +349,7 @@ class ReceiptDay(models.Model):
         validators=[MinValueValidator(Decimal("0"))],
     )
     yakuza_cash = models.DecimalField(
-        "Contanti Yakuza (€)",
+        "Yakuza (€)",
         max_digits=10,
         decimal_places=2,
         default=Decimal("0.00"),
@@ -373,7 +373,7 @@ class ReceiptDay(models.Model):
 
     @property
     def day_total(self):
-        """Incasso della giornata: scontrini più contanti Yakuza."""
+        """Incasso della giornata: scontrini più Yakuza."""
         return self.receipts_total + self.yakuza_cash
 
     @property
@@ -385,7 +385,7 @@ class ReceiptDay(models.Model):
 
 
 class DayClose(ReceiptDay):
-    """Chiusura di una giornata in un centro: gli scontrini battuti in cassa e i contanti Yakuza."""
+    """Chiusura di una giornata in un centro: gli scontrini battuti in cassa e lo Yakuza."""
 
     store = models.ForeignKey(Store, verbose_name="Centro", on_delete=models.PROTECT, related_name="closes")
 
