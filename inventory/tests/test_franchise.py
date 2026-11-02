@@ -154,7 +154,8 @@ class FranchiseeIsolationTests(FranchiseCase):
 
     def test_the_allowed_pages_are_only_those_of_the_section(self):
         self.assertEqual(
-            FRANCHISE_URL_NAMES, {"franchise", "franchise_day", "franchise_photo", "franchise_delete", "receipt_read"}
+            FRANCHISE_URL_NAMES,
+            {"franchise", "franchise_day", "franchise_photo", "franchise_delete", "receipt_read", "supplies"},
         )
 
     def test_the_admin_stays_closed(self):
@@ -312,6 +313,7 @@ class DayFormTests(FranchiseCase):
         for name in ("day", "receipts_total", "yakuza_cash", "cash_total", "card_total", "expenses", "expenses_note", "notes", "photo"):
             self.assertContains(response, f'name="{name}"')
         self.assertContains(response, "Giornata del franchising")
+        self.assertContains(response, "Eccesso cassa: non considerando i 250 di base")
         self.assertNotContains(response, "cambia punto")  # chi è in franchising ha un solo punto
 
     def test_an_existing_day_fills_the_form_and_keeps_its_date(self):

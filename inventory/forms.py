@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from . import ocr
 from .images import process_receipt, process_upload
-from .models import Batch, DayClose, FranchiseDay, Package, ShopSettings
+from .models import Batch, DayClose, FranchiseDay, Package, ShopSettings, Store, SupplyStatus
 
 TOLERANCE_CHOICES = [
     (0, "Peso esatto"),
@@ -236,7 +236,7 @@ class CloseDayForm(forms.Form):
         widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
     )
     yakuza_cash = forms.DecimalField(
-        label="Yakuza",
+        label="Eccesso cassa: non considerando i 250 di base",
         required=False,
         min_value=Decimal("0"),
         max_value=MAX_CLOSE_AMOUNT,
@@ -409,6 +409,89 @@ class FranchiseDayForm(CloseDayForm):
     def save(self, franchise, day):
         """Salva (o aggiorna) la giornata di quel punto; ritorna l'oggetto FranchiseDay."""
         return self.save_day(FranchiseDay, {"franchise": franchise, "date": day})
+
+
+class SupplyForm(forms.Form):
+    """Le risorse di un centro o di un punto: per ognuna il semaforo, la nota e (se serve) la quantità.
+
+    I campi si creano dalle risorse attive: `level_<id>`, `quantity_<id>`, `note_<id>`.
+    """
+
+    def __init__(self, *args, items, statuses, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.items = list(items)
+        self.statuses = statuses  # {id della risorsa: SupplyStatus}
+        for item in self.items:
+            current = statuses.get(item.pk)
+            self.fields[f"level_{item.pk}"] = forms.ChoiceField(
+                label=item.name,
+                choices=SupplyStatus.Level.choices,
+                required=False,
+                widget=forms.RadioSelect,
+                initial=current.level if current else None,
+            )
+            if item.has_quantity:
+                self.fields[f"quantity_{item.pk}"] = forms.IntegerField(
+                    label=f"Quantità{f' ({item.unit})' if item.unit else ''}",
+                    required=False,
+                    min_value=0,
+                    max_value=100000,
+                    initial=current.quantity if current else None,
+                    widget=forms.NumberInput(attrs={"inputmode": "numeric", "autocomplete": "off"}),
+                )
+            self.fields[f"note_{item.pk}"] = forms.CharField(
+                label="Nota (facoltativa)",
+                required=False,
+                max_length=200,
+                initial=current.note if current else "",
+                widget=forms.TextInput(attrs={"autocomplete": "off", "placeholder": "es. ne servono 2 rotoli"}),
+            )
+
+    def rows(self):
+        """Per il template: (risorsa, semaforo, quantità o None, nota, stato attuale o None)."""
+        for item in self.items:
+            yield (
+                item,
+                self[f"level_{item.pk}"],
+                self[f"quantity_{item.pk}"] if item.has_quantity else None,
+                self[f"note_{item.pk}"],
+                self.statuses.get(item.pk),
+            )
+
+    def clean(self):
+        cleaned = super().clean()
+        for item in self.items:
+            level = cleaned.get(f"level_{item.pk}")
+            quantity = cleaned.get(f"quantity_{item.pk}")
+            note = (cleaned.get(f"note_{item.pk}") or "").strip()
+            if not level and (quantity is not None or note):
+                self.add_error(f"level_{item.pk}", "Scegli il colore del semaforo.")
+        return cleaned
+
+    def save(self, place, user):
+        """Salva le risorse cambiate; ritorna quante sono cambiate. Quelle uguali restano com'erano (con la loro data)."""
+        changed = 0
+        owner_field = "store" if isinstance(place, Store) else "franchise"
+        for item in self.items:
+            level = self.cleaned_data.get(f"level_{item.pk}")
+            if not level:
+                continue  # mai indicata: niente da salvare
+            quantity = self.cleaned_data.get(f"quantity_{item.pk}") if item.has_quantity else None
+            note = (self.cleaned_data.get(f"note_{item.pk}") or "").strip()
+            status = self.statuses.get(item.pk) or SupplyStatus(item=item, **{owner_field: place})
+            if status.pk and (status.level, status.quantity, status.note) == (level, quantity, note):
+                continue
+            status.level, status.quantity, status.note, status.updated_by = level, quantity, note, user
+            try:
+                with transaction.atomic():
+                    status.save()
+            except IntegrityError:
+                # Due invii quasi insieme: l'altro l'ha appena creata. Si aggiorna quella.
+                status = SupplyStatus.objects.get(item=item, **{owner_field: place})
+                status.level, status.quantity, status.note, status.updated_by = level, quantity, note, user
+                status.save()
+            changed += 1
+        return changed
 
 
 class PriceForm(forms.ModelForm):

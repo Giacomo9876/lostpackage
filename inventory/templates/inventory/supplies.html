@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Risorse{% endblock %}
+
+{% block content %}
+<h1>Risorse</h1>
+
+{% if not overview %}
+  <p class="sub"><strong>{{ place.label }}</strong></p>
+  <p class="hint supply-intro">Segna come sei messo con pallet, sticker e scotch: i titolari lo vedono subito.</p>
+
+  <form method="post" class="stack" data-submit-once>
+    {% csrf_token %}
+    {% for item, level, quantity, note, status in form.rows %}
+      <fieldset class="card supply{% if level.errors %} has-error{% endif %}">
+        <legend class="supply-name">{{ item.name }}</legend>
+        <div class="lights">
+          {% for radio in level %}
+            <label class="light light-{{ radio.data.value }}">
+              {{ radio.tag }}
+              <span class="light-dot" aria-hidden="true"></span>
+              <span class="light-label">{{ radio.choice_label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        {% for error in level.errors %}<p class="error" role="alert">{{ error }}</p>{% endfor %}
+        {% if quantity %}
+          <div class="field{% if quantity.errors %} has-error{% endif %}">
+            <label for="{{ quantity.id_for_label }}">{{ quantity.label }}</label>
+            {{ quantity }}
+            {% for error in quantity.errors %}<p class="error">{{ error }}</p>{% endfor %}
+          </div>
+        {% endif %}
+        <div class="field{% if note.errors %} has-error{% endif %}">
+          <label for="{{ note.id_for_label }}">{{ note.label }}</label>
+          {{ note }}
+          {% for error in note.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        </div>
+        <p class="hint">
+          {% if status %}Aggiornato{% if status.updated_by %} da {{ status.updated_by.get_username }}{% endif %} il {{ status.updated_at|date:"j F, H:i"|lower }}.
+          {% else %}Non ancora indicato.{% endif %}
+        </p>
+      </fieldset>
+    {% empty %}
+      <div class="empty"><p>Nessuna risorsa da indicare.</p></div>
+    {% endfor %}
+    {% if form.items %}
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">Salva le risorse</button>
+      </div>
+    {% endif %}
+  </form>
+
+{% else %}
+  <p class="sub"><strong>Tutti i centri e i punti</strong> · solo lettura: le aggiornano gli store manager e i franchising.</p>
+
+  <nav class="chips" aria-label="Tipo">
+    {% for key, label in kinds %}
+      <a class="chip" href="{% querystring tipo=key|default:None %}"{% if kind == key %} aria-current="true"{% endif %}>{{ label }}</a>
+    {% endfor %}
+    <a class="chip" href="{% if only_problems %}{% querystring solo=None %}{% else %}{% querystring solo='problemi' %}{% endif %}"{% if only_problems %} aria-current="true"{% endif %}>Solo da sistemare</a>
+  </nav>
+
+  <p class="supply-totals">
+    <span class="supply-badge"><span class="dot dot-red" aria-hidden="true"></span>{{ totals.red }} finit{{ totals.red|pluralize:"a,e" }}</span>
+    <span class="supply-badge"><span class="dot dot-yellow" aria-hidden="true"></span>{{ totals.yellow }} in esaurimento</span>
+  </p>
+
+  {% for group in groups %}
+    <h2>{{ group.title }}</h2>
+    {% if group.cards %}
+      <ul class="supply-places">
+        {% for card in group.cards %}
+          <li class="card supply-place">
+            <h3 class="store-head"><strong>{{ card.place.name }}</strong><span class="store-city">{{ card.place.city }}</span></h3>
+            <ul class="supply-list">
+              {% for item, status in card.rows %}
+                <li class="supply-row">
+                  <span class="dot dot-{{ status.level|default:'none' }}" aria-hidden="true"></span>
+                  <span class="supply-row-main">
+                    <b>{{ item.name }}</b>
+                    <span class="supply-state">
+                      {% if status %}{{ status.get_level_display }}{% if status.quantity is not None %} · {{ status.quantity }}{% if item.unit %} {{ item.unit }}{% endif %}{% endif %}{% else %}non indicato{% endif %}
+                    </span>
+                    {% if status.note %}<span class="supply-note">{{ status.note }}</span>{% endif %}
+                  </span>
+                  {% if status %}<span class="supply-when">{{ status.updated_at|date:"j M"|lower }}</span>{% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="hint">{% if only_problems %}Niente da sistemare.{% else %}Nessun {% if group.title == "Franchising" %}punto{% else %}centro{% endif %}.{% endif %}</p>
+    {% endif %}
+  {% endfor %}
+{% endif %}
+{% endblock %}

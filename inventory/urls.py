@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import franchise_views, views
+from . import franchise_views, supply_views, views
 
 app_name = "inventory"
 
@@ -18,6 +18,7 @@ urlpatterns = [
     path("franchising/giornata/", franchise_views.FranchiseDayView.as_view(), name="franchise_day"),
     path("franchising/<int:pk>/foto/", franchise_views.franchise_photo, name="franchise_photo"),
     path("franchising/<int:pk>/elimina/", franchise_views.franchise_delete, name="franchise_delete"),
+    path("risorse/", supply_views.SuppliesView.as_view(), name="supplies"),
     path("magazzino/", views.PackageListView.as_view(), name="list"),
     path("storico/", views.PackageListView.as_view(history=True), name="history"),
     path("nuovo/", views.PackageCreateView.as_view(), name="create"),

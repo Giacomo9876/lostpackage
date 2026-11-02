@@ -16,7 +16,7 @@ from datetime import timedelta
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from .models import Batch, DayClose, Franchise, FranchiseDay, Package, Profile, Store
+from .models import Batch, DayClose, Franchise, FranchiseDay, Package, Profile, Store, SupplyStatus
 
 # Quanti giorni indietro (oltre a oggi) uno store manager può inserire o correggere una vendita.
 MANAGER_EDIT_DAYS = 1
@@ -87,6 +87,26 @@ class Scope:
             return FranchiseDay.objects.none()
         return FranchiseDay.objects.filter(franchise=self.franchise)
 
+    def supplies(self):
+        """Lo stato delle risorse: il titolare vede tutti, gli altri solo il proprio centro o punto."""
+        if self.is_owner:
+            return SupplyStatus.objects.all()
+        if self.store is not None:
+            return SupplyStatus.objects.filter(store=self.store)
+        if self.franchise is not None:
+            return SupplyStatus.objects.filter(franchise=self.franchise)
+        return SupplyStatus.objects.none()
+
+    @property
+    def supply_place(self):
+        """Dove si aggiornano le risorse: il centro dello store manager o il punto del franchising.
+
+        Il titolare le vede tutte ma non le modifica (None).
+        """
+        if self.is_owner:
+            return None
+        return self.store or self.franchise
+
     def resolve_franchise(self, raw):
         """Punto su cui si lavora: chi è in franchising ha sempre il suo; il titolare lo sceglie con ?punto=<id>."""
         if self.franchise is not None:
@@ -129,7 +149,7 @@ class Scope:
 
 
 # Le sole pagine dove entra chi è in franchising: tutto il resto lo riporta alla sua sezione.
-FRANCHISE_URL_NAMES = {"franchise", "franchise_day", "franchise_photo", "franchise_delete", "receipt_read"}
+FRANCHISE_URL_NAMES = {"franchise", "franchise_day", "franchise_photo", "franchise_delete", "receipt_read", "supplies"}
 
 
 class StoreAccessMiddleware:

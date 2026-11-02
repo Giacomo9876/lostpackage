@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db.models import Count, Q
 
-from .models import Batch, DayClose, Franchise, FranchiseDay, Profile, Store
+from .models import Batch, DayClose, Franchise, FranchiseDay, Profile, Store, SupplyItem, SupplyStatus
 
 User = get_user_model()
 
@@ -95,3 +95,26 @@ class FranchiseDayAdmin(admin.ModelAdmin):
     list_filter = ("franchise",)
     date_hierarchy = "date"
     exclude = ("photo", "detected_total")
+
+
+@admin.register(SupplyItem)
+class SupplyItemAdmin(admin.ModelAdmin):
+    """Le voci della sezione Risorse. Per toglierne una dall'app basta togliere la spunta «Attiva»."""
+
+    list_display = ("name", "has_quantity", "unit", "order", "active")
+    list_editable = ("order", "active")
+    search_fields = ("name",)
+
+
+@admin.register(SupplyStatus)
+class SupplyStatusAdmin(admin.ModelAdmin):
+    """Lo stato delle risorse lo aggiornano gli store manager e i franchising dall'app: qui si guarda soltanto."""
+
+    list_display = ("item", "store", "franchise", "level", "quantity", "note", "updated_by", "updated_at")
+    list_filter = ("level", "item", "store", "franchise")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

@@ -438,6 +438,68 @@ class FranchiseDay(ReceiptDay):
         return self.cash_total + self.card_total != self.receipts_total
 
 
+class SupplyItem(models.Model):
+    """Una risorsa da tenere d'occhio in negozio (pallet/merce, sticker, scotch…). Si gestiscono dall'admin."""
+
+    name = models.CharField("Nome", max_length=60, unique=True)
+    unit = models.CharField("Unità della quantità", max_length=20, blank=True, help_text="Es. «pallet». Serve solo se si chiede la quantità.")
+    has_quantity = models.BooleanField("Chiedi anche la quantità", default=False)
+    order = models.PositiveSmallIntegerField("Ordine", default=0)
+    active = models.BooleanField("Attiva", default=True, help_text="Le risorse non attive non compaiono più nell'app.")
+
+    class Meta:
+        ordering = ["order", "name"]
+        verbose_name = "risorsa"
+        verbose_name_plural = "risorse"
+
+    def __str__(self):
+        return self.name
+
+
+class SupplyStatus(models.Model):
+    """Come è messa una risorsa in un centro o in un punto in franchising: semaforo, quantità, nota.
+
+    Si tiene solo lo stato attuale (con chi e quando l'ha aggiornato). Ogni stato è di un centro
+    oppure di un punto, mai di entrambi.
+    """
+
+    class Level(models.TextChoices):
+        GREEN = "green", "OK"
+        YELLOW = "yellow", "In esaurimento"
+        RED = "red", "Finito"
+
+    item = models.ForeignKey(SupplyItem, verbose_name="Risorsa", on_delete=models.CASCADE, related_name="statuses")
+    store = models.ForeignKey(Store, verbose_name="Centro", null=True, blank=True, on_delete=models.CASCADE, related_name="supplies")
+    franchise = models.ForeignKey(
+        Franchise, verbose_name="Punto", null=True, blank=True, on_delete=models.CASCADE, related_name="supplies"
+    )
+    level = models.CharField("Semaforo", max_length=6, choices=Level.choices)
+    quantity = models.PositiveIntegerField("Quantità", null=True, blank=True, validators=[MaxValueValidator(100000)])
+    note = models.CharField("Nota", max_length=200, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField("Aggiornato il", auto_now=True)
+
+    class Meta:
+        ordering = ["item__order", "item__name"]
+        verbose_name = "stato di una risorsa"
+        verbose_name_plural = "stato delle risorse"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(store__isnull=False, franchise__isnull=True) | Q(store__isnull=True, franchise__isnull=False),
+                name="supply_of_a_store_or_a_franchise",
+            ),
+            models.UniqueConstraint(fields=["item", "store"], condition=Q(store__isnull=False), name="one_supply_per_store"),
+            models.UniqueConstraint(
+                fields=["item", "franchise"], condition=Q(franchise__isnull=False), name="one_supply_per_franchise"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.item} – {self.store or self.franchise}: {self.get_level_display()}"
+
+
 @receiver(post_delete, sender=Package)
 def delete_package_files(sender, instance, **kwargs):
     """Elimina le foto dal disco quando il pacco viene eliminato (anche da queryset/admin).

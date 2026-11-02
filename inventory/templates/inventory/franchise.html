@@ -31,6 +31,7 @@
   <p class="sub">
     <strong>{{ franchise.label }}</strong>
     {% if all_url %}· <a href="{{ all_url }}">tutti i punti</a>{% endif %}
+    · <a href="{% url 'inventory:supplies' %}{% if scope.is_owner %}?tipo=franchising{% endif %}">Risorse</a>
   </p>
 
   <div class="actions receipts-add">

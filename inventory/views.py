@@ -17,6 +17,7 @@ from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
 from . import averages, ocr, stats
+from .supply_views import summary as supply_summary
 from .forms import EARLIEST_CLOSE_DAY, BatchForm, CloseDayForm, ClosingEntryForm, PackageForm, PriceForm, SaleForm, SearchForm
 from .images import process_receipt
 from .models import Batch, Package, ShopSettings
@@ -168,6 +169,7 @@ def dashboard(request):
         **data,
         "cards": cards,
         "franchise_cards": _franchise_cards(scope),
+        "supply_totals": supply_summary(scope.supplies()),
         "total": total,
         "insights": stats.insights(data["rows"], total, period, data["today"]),
         "revenue_change": stats.change_pct(total.revenue, total_before.revenue),
@@ -212,6 +214,7 @@ def _store_dashboard(request, store):
         "today_close": today_close,
         "today_count": today_count,
         "centro_param": f"?centro={store.pk}" if scope.is_owner else "",
+        "supply_totals": supply_summary(scope.supplies().filter(store=store)),
     }
     return render(request, "inventory/store_dashboard.html", context)
 

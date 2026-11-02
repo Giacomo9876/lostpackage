@@ -17,6 +17,17 @@
   <a class="btn btn-primary" href="{% url 'inventory:closing' %}{{ centro_param }}">{% if today_close %}Rivedi la chiusura di oggi{% else %}Inserisci i pacchi e chiudi la giornata{% endif %}</a>
 </section>
 
+<section class="card supply-link" aria-label="Risorse">
+  <strong>Risorse</strong>
+  <span class="supply-badge"><span class="dot dot-red" aria-hidden="true"></span>{{ supply_totals.red }} finit{{ supply_totals.red|pluralize:"a,e" }}</span>
+  <span class="supply-badge"><span class="dot dot-yellow" aria-hidden="true"></span>{{ supply_totals.yellow }} in esaurimento</span>
+  {% if scope.is_owner %}
+    <a href="{% url 'inventory:supplies' %}?tipo=centri">Vedi le risorse dei centri</a>
+  {% else %}
+    <a href="{% url 'inventory:supplies' %}">Aggiorna pallet, sticker e scotch</a>
+  {% endif %}
+</section>
+
 {% include "inventory/_period.html" %}
 
 <section class="stats" aria-label="Riepilogo {{ period.label|lower }}">

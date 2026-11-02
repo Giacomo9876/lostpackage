@@ -99,7 +99,9 @@ class FormPageTests(ReceiptCase):
         self.assertContains(response, 'accept="image/*"')
         self.assertContains(response, 'capture="environment"')
         self.assertContains(response, 'enctype="multipart/form-data"')
-        self.assertContains(response, '<label for="id_yakuza_cash">Yakuza</label>', html=False)
+        self.assertContains(
+            response, '<label for="id_yakuza_cash">Eccesso cassa: non considerando i 250 di base</label>', html=False
+        )
         self.assertNotContains(response, "Contanti Yakuza")
         self.assertNotContains(response, "senza scontrino")
 

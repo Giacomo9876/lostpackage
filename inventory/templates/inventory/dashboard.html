@@ -72,6 +72,13 @@
   {% endfor %}
 </ul>
 
+<section class="card supply-link" aria-label="Risorse">
+  <strong>Risorse</strong>
+  <span class="supply-badge"><span class="dot dot-red" aria-hidden="true"></span>{{ supply_totals.red }} finit{{ supply_totals.red|pluralize:"a,e" }}</span>
+  <span class="supply-badge"><span class="dot dot-yellow" aria-hidden="true"></span>{{ supply_totals.yellow }} in esaurimento</span>
+  <a href="{% url 'inventory:supplies' %}{% if supply_totals.red or supply_totals.yellow %}?solo=problemi{% endif %}">Vedi pallet, sticker e scotch</a>
+</section>
+
 {% if franchise_cards %}
   <h2>Franchising</h2>
   <ul class="stores">
