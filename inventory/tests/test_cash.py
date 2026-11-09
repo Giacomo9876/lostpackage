@@ -153,14 +153,19 @@ class WhoSeesWhatTests(TestCase):
         self.assertContains(page, "contanti 80,00 €")
         self.assertContains(self.client.get(CLOSING, {"centro": store().pk}), "Ammanco cassa 20,00 €")
 
-    def test_managers_never_see_yakuza_or_the_shortage(self):
+    def test_managers_see_yakuza_and_shortage_of_their_center_only(self):
+        self.client.force_login(self.manager)
+        self.assertContains(self.client.get(RECEIPTS), "Ammanco cassa 20,00 €")
+        self.assertContains(self.client.get(CLOSING), "Ammanco cassa 20,00 €")
         self.short.cash_excess = D("130")  # ora 50 di Yakuza
         self.short.save()
-        self.client.force_login(self.manager)
-        for page in (self.client.get(RECEIPTS), self.client.get(CLOSING)):
-            self.assertNotContains(page, "Yakuza 50")
+        self.assertContains(self.client.get(RECEIPTS), "Yakuza 50,00 €")
+        self.assertContains(self.client.get(CLOSING), "più Yakuza 50,00 €")
+        other = make_user("gigi", Profile.Role.MANAGER, "Globo")
+        self.client.force_login(other)
+        for page in (self.client.get(RECEIPTS, {"centro": store().pk}), self.client.get(CLOSING, {"centro": store().pk})):
+            self.assertNotContains(page, "50,00")
             self.assertNotContains(page, "Ammanco")
-
     def test_the_admin_shows_the_yakuza_but_does_not_let_anyone_type_it(self):
         admin = get_user_model().objects.create_superuser("admin", password="una-password-lunga-123")
         self.client.force_login(admin)

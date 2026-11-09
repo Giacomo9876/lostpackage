@@ -253,9 +253,7 @@ class ClosingView(DayMixin, StoreChoiceMixin, TemplateView):
             yakuza=Sum("sold_price", filter=yakuza),
             yakuza_count=Count("id", filter=yakuza),
         )
-        close = self.request.scope.closes().filter(store=self.store, date=day).first()
-        if close and not self.request.scope.is_owner:
-            close.yakuza_cash = stats.ZERO  # solo in memoria: i manager non vedono lo Yakuza
+        close = self.request.scope.closes().filter(store=self.store, date=day).first()  # solo del proprio centro
         context.update(
             store=self.store,
             day=day,
@@ -373,9 +371,7 @@ class ReceiptsView(TemplateView):
         closes = scope.closes()
         if store is not None:
             closes = closes.filter(store=store)
-        rows = averages.closing_rows(closes, period)
-        if not scope.is_owner:
-            rows = [(store_id, day, receipts, stats.ZERO) for store_id, day, receipts, _ in rows]
+        rows = averages.closing_rows(closes, period)  # già limitate al perimetro: il manager ha solo il suo centro
 
         average = averages.compute(rows, period, today)  # il centro scelto, o tutti i centri insieme
         by_store = None
@@ -414,8 +410,6 @@ class ReceiptsView(TemplateView):
     @staticmethod
     def with_links(closes, scope):
         for close in closes:
-            if not scope.is_owner:
-                close.yakuza_cash = stats.ZERO  # solo in memoria: i manager non vedono lo Yakuza
             if scope.can_edit_day(close.date):
                 params = {"data": close.date.isoformat()}
                 if scope.is_owner:
@@ -561,8 +555,7 @@ class DayEntryMixin:
             )
         else:
             text = f"Giornata del {label} salvata: scontrini {euro(close.receipts_total)} €"
-            scope = request.scope
-            if close.yakuza_cash and (scope.is_owner or scope.is_franchise):  # i manager non vedono lo Yakuza
+            if close.yakuza_cash:
                 text += f" e Yakuza {euro(close.yakuza_cash)} €"
             messages.success(request, text + ".")
         if close.cash_shortage:

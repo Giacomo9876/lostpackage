@@ -1,4 +1,4 @@
-{# Una riga del grafico delle medie. Serve: row (averages.ChartRow), show_private. #}
+{# Una riga del grafico delle medie. Serve: row (averages.ChartRow). #}
 <li class="avg-row">
   <span class="avg-row-head">
     <span><b class="avg-row-title">{{ row.title }}</b> <span class="avg-note">{{ row.note }}</span></span>
@@ -7,16 +7,16 @@
   <span class="avg-track" aria-hidden="true">
     {% if row.pct %}
       <span class="avg-fill" style="--w: {{ row.pct }}%"
-            title="{{ row.title }}: {{ row.bucket.avg_total|floatformat:'2g' }} € al giorno{% if show_private and row.yakuza_pct %} (scontrini {{ row.bucket.avg_receipts|floatformat:'2g' }} € + Yakuza {{ row.bucket.avg_yakuza|floatformat:'2g' }} €){% endif %}">
+            title="{{ row.title }}: {{ row.bucket.avg_total|floatformat:'2g' }} € al giorno{% if row.yakuza_pct %} (scontrini {{ row.bucket.avg_receipts|floatformat:'2g' }} € + Yakuza {{ row.bucket.avg_yakuza|floatformat:'2g' }} €){% endif %}">
         <span class="avg-seg avg-seg-receipts"></span>
-        {% if show_private and row.yakuza_pct %}<span class="avg-seg avg-seg-yak" style="--y: {{ row.yakuza_pct }}%"></span>{% endif %}
+        {% if row.yakuza_pct %}<span class="avg-seg avg-seg-yak" style="--y: {{ row.yakuza_pct }}%"></span>{% endif %}
       </span>
     {% endif %}
   </span>
   <span class="avg-meta">
     {% if row.bucket.days %}
       {{ row.bucket.days }} giornat{{ row.bucket.days|pluralize:"a,e" }}
-      {% if show_private and row.bucket.yakuza %}· <span class="nowrap">scontrini {{ row.bucket.avg_receipts|floatformat:"2g" }} €</span> + <span class="nowrap">Yakuza {{ row.bucket.avg_yakuza|floatformat:"2g" }} €</span>{% endif %}
+      {% if row.bucket.yakuza %}· <span class="nowrap">scontrini {{ row.bucket.avg_receipts|floatformat:"2g" }} €</span> + <span class="nowrap">Yakuza {{ row.bucket.avg_yakuza|floatformat:"2g" }} €</span>{% endif %}
     {% else %}nessuna giornata nel periodo{% endif %}
   </span>
 </li>

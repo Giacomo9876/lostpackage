@@ -9,7 +9,6 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.formats import date_format
 from PIL import Image
 
 from .. import averages, ocr
@@ -186,20 +185,12 @@ class SaveTests(ReceiptCase):
         self.save({"receipts_total": "50"})
         self.assertEqual(DayClose.objects.get().yakuza_cash, D("0.00"))
 
-    def test_the_confirmation_message_mentions_yakuza_only_to_owners_and_only_when_there_is_some(self):
-        data = {"receipts_total": "50", "cash_total": "10", "cash_excess": "22,5", "day": timezone.localdate().isoformat()}
-        response = self.save(data, follow=True)
-        self.assertEqual(self.messages(response), ["Giornata del " + date_format(timezone.localdate(), "j F Y").lower() + " salvata: scontrini 50,00 €."])
-        self.assertEqual(DayClose.objects.get().yakuza_cash, D("12.50"))  # salvato, ma il manager non lo vede
-        DayClose.objects.all().delete()
-        self.as_owner()
-        url = f"{CLOSE}?centro={store('Milanofiori').pk}&nuova=1"
-        response = self.save(data, url=url, follow=True)
+    def test_the_confirmation_message_mentions_yakuza_only_when_there_is_some(self):
+        response = self.save({"receipts_total": "50", "cash_total": "10", "cash_excess": "22,5"}, follow=True)
         self.assertIn("scontrini 50,00 € e Yakuza 12,50 €", self.messages(response)[0])
         DayClose.objects.all().delete()
-        response = self.save({"receipts_total": "50", "day": data["day"]}, url=url, follow=True)
+        response = self.save({"receipts_total": "50"}, follow=True)
         self.assertNotIn("Yakuza", self.messages(response)[0])
-
     def test_amount_is_required_without_a_photo(self):
         response = self.save({"receipts_total": "", "cash_total": "0", "cash_excess": "10"})
         self.assertEqual(response.status_code, 200)
@@ -705,45 +696,46 @@ class ReceiptsPageTests(ReceiptCase):
         make_close(SUN_11, 600)
         make_close(TUE_6, 300, store_name="Globo")
 
-    def test_a_manager_sees_the_averages_of_the_own_center_without_yakuza(self):
+    def test_a_manager_sees_the_averages_of_the_own_center_with_its_yakuza(self):
         self.fill()
         response = self.client.get(RECEIPTS)
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "inventory/receipts.html")
         average = response.context["average"]
+        # Milanofiori: lun 120 (100 + 20 Yakuza), mar 200, sab 400, dom 600; Globo non entra
         self.assertEqual(
             (average.weekdays.avg_total, average.weekend.avg_total, average.all_days.avg_total, average.week_total),
-            (D("150.00"), D("500.00"), D("325.00"), D("1300.00")),
+            (D("160.00"), D("500.00"), D("330.00"), D("1320.00")),
         )
-        self.assertEqual(average.weekdays.yakuza, D("0"))
+        self.assertEqual(average.weekdays.yakuza, D("20.00"))
         self.assertIsNone(response.context["by_store"])
-        for text in ("Infrasettimanale", "Settimanale", "Fine settimana", "150,00 €", "500,00 €", "325,00 €", "1.300,00 €"):
+        for text in ("Infrasettimanale", "Settimanale", "Fine settimana", "160,00 €", "500,00 €", "330,00 €", "1.320,00 €"):
             self.assertContains(response, text)
-
-    def test_a_manager_never_sees_yakuza_figures_on_this_page(self):
+    def test_a_manager_sees_the_yakuza_of_the_own_center_only(self):
         self.fill()
-        response = self.client.get(RECEIPTS)
-        self.assertNotContains(response, "Yakuza")
-        self.assertNotContains(response, "20,00")
-        self.assertNotContains(response, "120,00")
-        self.assertTrue(all(close.yakuza_cash == 0 for close in response.context["closes"]))
-        self.assertEqual([close.day_total for close in response.context["closes"]][-1], D("100.00"))
-
+        make_close(SAT_10, 300, 77, store_name="Globo")
+        for params in ({}, {"centro": store("Globo").pk}):  # chiedere un altro centro non cambia nulla
+            with self.subTest(params=params):
+                response = self.client.get(RECEIPTS, params)
+                self.assertContains(response, "Yakuza 20,00 €")
+                self.assertNotContains(response, "77,00")
+                self.assertEqual({close.store for close in response.context["closes"]}, {store("Milanofiori")})
+                self.assertEqual([close.day_total for close in response.context["closes"]][-1], D("120.00"))
+                self.assertEqual(response.context["average"].weekdays.yakuza, D("20.00"))
     def test_the_three_averages_are_drawn_as_bars(self):
         self.fill()
         response = self.client.get(RECEIPTS)
         chart = response.context["chart"]
-        # manager: lun–ven 150, tutti 325, sab–dom 500 (senza Yakuza)
-        self.assertEqual([r.pct for r in chart], [30, 65, 100])
+        # manager: lun–ven 160, tutti 330, sab–dom 500 (con lo Yakuza del suo centro)
+        self.assertEqual([r.pct for r in chart], [32, 66, 100])
         self.assertContains(response, 'style="--w: 100%"')
-        self.assertContains(response, 'style="--w: 30%"')
-        self.assertNotContains(response, "avg-seg-yak")
-        self.assertContains(response, "Una settimana intera: <b>1.300,00 €</b>", html=False)
+        self.assertContains(response, 'style="--w: 32%"')
+        self.assertContains(response, "avg-seg-yak")
+        self.assertContains(response, "Una settimana intera: <b>1.320,00 €</b>", html=False)
         self.as_owner()
         owner = self.client.get(RECEIPTS, {"centro": store("Milanofiori").pk})
         self.assertContains(owner, "avg-seg-yak")
         self.assertContains(owner, '<span class="swatch swatch-yak"></span>Yakuza', html=False)
-
     def test_a_manager_sees_only_the_own_center(self):
         self.fill()
         response = self.client.get(RECEIPTS, {"centro": store("Globo").pk})
@@ -871,12 +863,11 @@ class ReceiptsPageTests(ReceiptCase):
 
 
 class ClosingPageYakuzaTests(ReceiptCase):
-    def test_the_cash_card_shows_yakuza_to_owners_only(self):
+    def test_the_cash_card_shows_the_yakuza_of_the_own_center(self):
         close = make_close(timezone.localdate(), "100", "35")
         page = self.client.get(reverse("inventory:closing"))
         self.assertContains(page, "<strong>100,00 €</strong>")
-        self.assertNotContains(page, "più Yakuza")
-        self.assertEqual(page.context["close"].yakuza_cash, D("0.00"))
+        self.assertContains(page, "più Yakuza 35,00 €")  # il manager vede lo Yakuza del suo centro
         self.as_owner()
         page = self.client.get(reverse("inventory:closing"), {"centro": close.store_id})
         self.assertContains(page, "più Yakuza 35,00 €")

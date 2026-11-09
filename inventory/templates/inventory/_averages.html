@@ -1,7 +1,8 @@
-{# Le tre medie al giorno a barre e l'incasso medio di una settimana intera. Serve: average, chart, period, show_private. #}
+{# Le tre medie al giorno a barre e l'incasso medio di una settimana intera. Serve: average, chart, period.
+   Lo Yakuza si vede sempre: le giornate sono già solo quelle che chi guarda può vedere (il suo centro o punto). #}
 <section class="card avg-chart" aria-labelledby="avg-title">
   <h2 id="avg-title">Media al giorno <span class="h1-sub">{{ period.label|lower }}</span></h2>
-  {% if show_private and average.all_days.yakuza %}
+  {% if average.all_days.yakuza %}
     <ul class="avg-legend">
       <li><span class="swatch swatch-receipts"></span>Scontrini</li>
       <li><span class="swatch swatch-yak"></span>Yakuza</li>
@@ -13,7 +14,7 @@
   <p class="avg-week">
     {% if average.weeks %}
       Una settimana intera: <b>{{ average.week_total|floatformat:"2g" }} €</b>
-      <span class="avg-note">media di {{ average.weeks }} settiman{{ average.weeks|pluralize:"a,e" }}{% if show_private and average.week_yakuza %}, di cui Yakuza {{ average.week_yakuza|floatformat:"2g" }} €{% endif %}</span>
+      <span class="avg-note">media di {{ average.weeks }} settiman{{ average.weeks|pluralize:"a,e" }}{% if average.week_yakuza %}, di cui Yakuza {{ average.week_yakuza|floatformat:"2g" }} €{% endif %}</span>
     {% else %}
       <span class="avg-note">Nessuna settimana intera (lunedì – domenica) finita nel periodo.</span>
     {% endif %}
