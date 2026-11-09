@@ -65,25 +65,25 @@
     {% endif %}
   </div>
 
-  <div class="field{% if form.yakuza_cash.errors %} has-error{% endif %}">
-    <label for="{{ form.yakuza_cash.id_for_label }}">{{ form.yakuza_cash.label }}</label>
-    <div class="readout-input">{{ form.yakuza_cash }}<span>€</span></div>
-    {% for error in form.yakuza_cash.errors %}<p class="error">{{ error }}</p>{% endfor %}
+  <div class="field{% if form.cash_total.errors %} has-error{% endif %}">
+    <label for="{{ form.cash_total.id_for_label }}">{{ form.cash_total.label }}</label>
+    <div class="readout-input readout-compact">{{ form.cash_total }}<span>€</span></div>
+    {% for error in form.cash_total.errors %}<p class="error">{{ error }}</p>{% endfor %}
+  </div>
+  <div class="field{% if form.card_total.errors %} has-error{% endif %}">
+    <label for="{{ form.card_total.id_for_label }}">{{ form.card_total.label }}</label>
+    <div class="readout-input readout-compact">{{ form.card_total }}<span>€</span></div>
+    {% for error in form.card_total.errors %}<p class="error">{{ error }}</p>{% endfor %}
+  </div>
+  <p class="hint">Come si dividono gli scontrini: li trovi sullo scontrino di chiusura.</p>
+
+  <div class="field{% if form.cash_excess.errors %} has-error{% endif %}">
+    <label for="{{ form.cash_excess.id_for_label }}">{{ form.cash_excess.label }}</label>
+    <div class="readout-input">{{ form.cash_excess }}<span>€</span></div>
+    {% for error in form.cash_excess.errors %}<p class="error">{{ error }}</p>{% endfor %}
   </div>
 
   {% if franchise_fields %}
-    <div class="field{% if form.cash_total.errors %} has-error{% endif %}">
-      <label for="{{ form.cash_total.id_for_label }}">{{ form.cash_total.label }}</label>
-      <div class="readout-input readout-compact">{{ form.cash_total }}<span>€</span></div>
-      {% for error in form.cash_total.errors %}<p class="error">{{ error }}</p>{% endfor %}
-    </div>
-    <div class="field{% if form.card_total.errors %} has-error{% endif %}">
-      <label for="{{ form.card_total.id_for_label }}">{{ form.card_total.label }}</label>
-      <div class="readout-input readout-compact">{{ form.card_total }}<span>€</span></div>
-      {% for error in form.card_total.errors %}<p class="error">{{ error }}</p>{% endfor %}
-    </div>
-    <p class="hint">Contanti e carta: come si dividono gli scontrini (li trovi sullo scontrino di chiusura). Facoltativi.</p>
-
     <div class="field{% if form.expenses.errors %} has-error{% endif %}">
       <label for="{{ form.expenses.id_for_label }}">{{ form.expenses.label }}</label>
       <div class="readout-input readout-compact">{{ form.expenses }}<span>€</span></div>

@@ -9,6 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.formats import date_format
 from PIL import Image
 
 from .. import averages, ocr
@@ -45,8 +46,10 @@ def processed_bytes(file):
 
 
 def make_close(day, receipts, yakuza="0", store_name="Milanofiori", **extra):
+    """Una chiusura con quello Yakuza: l'eccesso cassa è lo Yakuza più i contanti dello scontrino (se ci sono)."""
+    excess = D(str(yakuza)) + (extra.get("cash_total") or 0)
     return DayClose.objects.create(
-        store=store(store_name), date=day, receipts_total=D(str(receipts)), yakuza_cash=D(str(yakuza)), **extra
+        store=store(store_name), date=day, receipts_total=D(str(receipts)), cash_excess=excess, **extra
     )
 
 
@@ -95,13 +98,18 @@ class FormPageTests(ReceiptCase):
         self.assertEqual(response.context["store"], store("Milanofiori"))
         self.assertEqual(response.context["day"], timezone.localdate())
         self.assertContains(response, 'name="receipts_total"')
-        self.assertContains(response, 'name="yakuza_cash"')
+        self.assertContains(response, 'name="cash_excess"')
+        self.assertContains(response, 'name="cash_total"')
+        self.assertContains(response, 'name="card_total"')
+        self.assertNotContains(response, 'name="yakuza_cash"')  # lo Yakuza non si scrive: si calcola
         self.assertContains(response, 'accept="image/*"')
         self.assertContains(response, 'capture="environment"')
         self.assertContains(response, 'enctype="multipart/form-data"')
         self.assertContains(
-            response, '<label for="id_yakuza_cash">Eccesso cassa: non considerando i 250 di base</label>', html=False
+            response, '<label for="id_cash_excess">Eccesso cassa: non considerando i 250 di base</label>', html=False
         )
+        self.assertContains(response, '<label for="id_cash_total">Contanti dello scontrino (€)</label>', html=False)
+        self.assertContains(response, '<label for="id_card_total">Carta dello scontrino (€)</label>', html=False)
         self.assertNotContains(response, "Contanti Yakuza")
         self.assertNotContains(response, "senza scontrino")
 
@@ -161,10 +169,13 @@ class FormPageTests(ReceiptCase):
 
 class SaveTests(ReceiptCase):
     def test_amount_and_yakuza_are_saved_for_today(self):
-        response = self.save({"receipts_total": "100,50", "yakuza_cash": "20"})
+        data = {"receipts_total": "100,50", "cash_total": "30", "card_total": "70,50", "cash_excess": "50"}
+        response = self.save(data)
         self.assertRedirects(response, RECEIPTS, fetch_redirect_response=False)
         close = DayClose.objects.get()
         self.assertEqual((close.store, close.date), (store("Milanofiori"), timezone.localdate()))
+        self.assertEqual((close.cash_total, close.card_total, close.cash_excess), (D("30.00"), D("70.50"), D("50.00")))
+        # Yakuza = eccesso cassa 50 − contanti dello scontrino 30 (già contati negli scontrini)
         self.assertEqual((close.receipts_total, close.yakuza_cash), (D("100.50"), D("20.00")))
         self.assertEqual(close.closed_by, self.user)
         self.assertFalse(close.has_photo)
@@ -175,15 +186,22 @@ class SaveTests(ReceiptCase):
         self.save({"receipts_total": "50"})
         self.assertEqual(DayClose.objects.get().yakuza_cash, D("0.00"))
 
-    def test_the_confirmation_message_mentions_yakuza_only_when_there_is_some(self):
-        response = self.save({"receipts_total": "50", "yakuza_cash": "12,5"}, follow=True)
+    def test_the_confirmation_message_mentions_yakuza_only_to_owners_and_only_when_there_is_some(self):
+        data = {"receipts_total": "50", "cash_total": "10", "cash_excess": "22,5", "day": timezone.localdate().isoformat()}
+        response = self.save(data, follow=True)
+        self.assertEqual(self.messages(response), ["Giornata del " + date_format(timezone.localdate(), "j F Y").lower() + " salvata: scontrini 50,00 €."])
+        self.assertEqual(DayClose.objects.get().yakuza_cash, D("12.50"))  # salvato, ma il manager non lo vede
+        DayClose.objects.all().delete()
+        self.as_owner()
+        url = f"{CLOSE}?centro={store('Milanofiori').pk}&nuova=1"
+        response = self.save(data, url=url, follow=True)
         self.assertIn("scontrini 50,00 € e Yakuza 12,50 €", self.messages(response)[0])
         DayClose.objects.all().delete()
-        response = self.save({"receipts_total": "50"}, follow=True)
+        response = self.save({"receipts_total": "50", "day": data["day"]}, url=url, follow=True)
         self.assertNotIn("Yakuza", self.messages(response)[0])
 
     def test_amount_is_required_without_a_photo(self):
-        response = self.save({"receipts_total": "", "yakuza_cash": "10"})
+        response = self.save({"receipts_total": "", "cash_total": "0", "cash_excess": "10"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["form"].errors["receipts_total"], ["Scrivi il totale degli scontrini."])
         self.assertContains(response, "Scrivi il totale degli scontrini.")
@@ -194,9 +212,13 @@ class SaveTests(ReceiptCase):
             ({"receipts_total": "-1"}, "receipts_total"),
             ({"receipts_total": "abc"}, "receipts_total"),
             ({"receipts_total": "10000000"}, "receipts_total"),
-            ({"receipts_total": "10", "yakuza_cash": "-5"}, "yakuza_cash"),
-            ({"receipts_total": "10", "yakuza_cash": "abc"}, "yakuza_cash"),
-            ({"receipts_total": "10", "yakuza_cash": "10000000"}, "yakuza_cash"),
+            ({"receipts_total": "10", "cash_total": "0", "cash_excess": "-5"}, "cash_excess"),
+            ({"receipts_total": "10", "cash_total": "0", "cash_excess": "abc"}, "cash_excess"),
+            ({"receipts_total": "10", "cash_total": "0", "cash_excess": "10000000"}, "cash_excess"),
+            ({"receipts_total": "10", "cash_total": "-1"}, "cash_total"),
+            ({"receipts_total": "10", "cash_total": "abc"}, "cash_total"),
+            ({"receipts_total": "10", "card_total": "-1"}, "card_total"),
+            ({"receipts_total": "10", "card_total": "10000000"}, "card_total"),
         ]
         for data, field in cases:
             with self.subTest(data=data):
@@ -206,8 +228,8 @@ class SaveTests(ReceiptCase):
         self.assertFalse(DayClose.objects.exists())
 
     def test_saving_again_updates_the_same_close(self):
-        self.save({"receipts_total": "100", "yakuza_cash": "10"})
-        self.save({"receipts_total": "90,50", "yakuza_cash": ""})
+        self.save({"receipts_total": "100", "cash_total": "0", "cash_excess": "10"})
+        self.save({"receipts_total": "90,50", "cash_excess": ""})
         close = DayClose.objects.get()
         self.assertEqual((close.receipts_total, close.yakuza_cash), (D("90.50"), D("0.00")))
 

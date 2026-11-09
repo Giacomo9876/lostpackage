@@ -54,7 +54,10 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # Primo: le richieste troppo grandi si rifiutano prima di leggerle (vedi inventory/security.py).
+    "inventory.security.RequestSizeLimitMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "inventory.security.ContentSecurityPolicyMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -131,6 +134,10 @@ AXES_ENABLED = env_bool("AXES_ENABLED", True)
 # User-Agent o cookie: vale solo se questi sono tra i parametri di blocco, e qui non lo sono.
 SILENCED_SYSTEM_CHECKS = ["axes.W006"]
 
+# Quanto resta aperto l'accesso dopo il login (di base 14 giorni, come Django). Su telefoni condivisi
+# conviene meno, es. DJANGO_SESSION_HOURS=12: poi si rientra con la password.
+SESSION_COOKIE_AGE = int(os.environ.get("DJANGO_SESSION_HOURS", "336")) * 3600
+
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "inventory:dashboard"
 LOGOUT_REDIRECT_URL = "login"
@@ -155,6 +162,33 @@ MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "15"))
 # PythonAnywhere c'è già). Con OCR_ENABLED=0 si spegne; TESSERACT_CMD è il percorso del programma.
 OCR_ENABLED = os.environ.get("OCR_ENABLED", "1") == "1"
 TESSERACT_CMD = os.environ.get("TESSERACT_CMD", "tesseract")
+
+# Content-Security-Policy: il browser esegue solo gli script dell'app (nessuno inline o da altri siti).
+# Gli stili inline servono alle barre dei grafici; blob: alle anteprime delle foto prima del caricamento.
+# DJANGO_CSP="" la toglie (solo se servisse per capire un problema).
+CONTENT_SECURITY_POLICY = os.environ.get(
+    "DJANGO_CSP",
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; "
+    "connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
+    "frame-ancestors 'none'",
+)
+
+# Registro: avvisi ed errori finiscono nel log del server (su PythonAnywhere: «Error log»).
+# Senza, con DEBUG spento Django non scrive da nessuna parte gli errori 500, i rifiuti CSRF,
+# gli Host non validi e i blocchi dei login (axes).
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"plain": {"format": "{asctime} {levelname} {name}: {message}", "style": "{"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "plain"}},
+    "root": {"handlers": ["console"], "level": "WARNING"},
+    "loggers": {
+        # Solo gli errori veri (500): i 403/404 sono normali e riempirebbero il registro.
+        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
+        "django.security": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        "axes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+    },
+}
 
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},

@@ -2,11 +2,17 @@
 {% block title %}Risorse{% endblock %}
 
 {% block content %}
+{% if as_owner %}<a class="back" href="{% url 'inventory:supplies' %}">Tutte le risorse</a>{% endif %}
 <h1>Risorse</h1>
 
 {% if not overview %}
-  <p class="sub"><strong>{{ place.label }}</strong></p>
-  <p class="hint supply-intro">Segna come sei messo con pallet, sticker e scotch: i titolari lo vedono subito.</p>
+  {% if as_owner %}
+    <p class="sub"><strong>{{ place.label }}</strong></p>
+    <p class="hint supply-intro">Stai modificando come titolare: resta scritto che l'hai aggiornata tu.</p>
+  {% else %}
+    <p class="sub"><strong>{{ place.label }}</strong></p>
+    <p class="hint supply-intro">Segna come sei messo con pallet, sticker e scotch: i titolari lo vedono subito.</p>
+  {% endif %}
 
   <form method="post" class="stack" data-submit-once>
     {% csrf_token %}
@@ -51,7 +57,7 @@
   </form>
 
 {% else %}
-  <p class="sub"><strong>Tutti i centri e i punti</strong> · solo lettura: le aggiornano gli store manager e i franchising.</p>
+  <p class="sub"><strong>Tutti i centri e i punti</strong> · le aggiornano gli store manager e i franchising; potete modificarle anche voi con «Modifica».</p>
 
   <nav class="chips" aria-label="Tipo">
     {% for key, label in kinds %}
@@ -71,7 +77,10 @@
       <ul class="supply-places">
         {% for card in group.cards %}
           <li class="card supply-place">
-            <h3 class="store-head"><strong>{{ card.place.name }}</strong><span class="store-city">{{ card.place.city }}</span></h3>
+            <div class="supply-place-head">
+              <h3 class="store-head"><strong>{{ card.place.name }}</strong><span class="store-city">{{ card.place.city }}</span></h3>
+              <a class="btn btn-secondary btn-small" href="{{ card.edit_url }}" aria-label="Modifica le risorse di {{ card.place.name }}">Modifica</a>
+            </div>
             <ul class="supply-list">
               {% for item, status in card.rows %}
                 <li class="supply-row">

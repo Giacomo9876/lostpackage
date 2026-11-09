@@ -58,8 +58,11 @@
         <span class="day-money">{{ close.day_total|floatformat:"2g" }} €</span>
         <span class="day-meta">
           {% if show_private and close.yakuza_cash %}scontrini {{ close.receipts_total|floatformat:"2g" }} € + Yakuza {{ close.yakuza_cash|floatformat:"2g" }} €{% else %}scontrini{% endif %}
+          {% include "inventory/_cash_card.html" with day=close %}
         </span>
         <span class="day-tags">
+          {% if show_private and close.cash_shortage %}<span class="tag tag-warn">Ammanco cassa {{ close.cash_shortage|floatformat:"2g" }} €</span>{% endif %}
+          {% if close.payments_mismatch %}<span class="tag tag-warn">Contanti + carta ≠ scontrini</span>{% endif %}
           {% if close.reading == "read" %}<span class="tag tag-exact">Letto dalla foto</span>
           {% elif close.reading == "corrected" %}<span class="tag tag-sold">Corretto a mano · letto {{ close.detected_total|floatformat:"2g" }} €</span>
           {% else %}<span class="tag">Scritto a mano</span>{% endif %}

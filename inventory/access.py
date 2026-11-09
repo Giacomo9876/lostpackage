@@ -99,9 +99,9 @@ class Scope:
 
     @property
     def supply_place(self):
-        """Dove si aggiornano le risorse: il centro dello store manager o il punto del franchising.
+        """Il posto fisso dove si aggiornano le risorse: il centro dello store manager o il punto del franchising.
 
-        Il titolare le vede tutte ma non le modifica (None).
+        Il titolare non ne ha uno fisso (None): sceglie lui quale centro o punto modificare.
         """
         if self.is_owner:
             return None

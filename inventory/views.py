@@ -463,7 +463,12 @@ class DayEntryMixin:
         return self.request.scope.is_owner
 
     def initial_for(self, close):
-        return {"receipts_total": close.receipts_total, "yakuza_cash": close.yakuza_cash or None}
+        return {
+            "receipts_total": close.receipts_total,
+            "cash_total": close.cash_total,
+            "card_total": close.card_total,
+            "cash_excess": close.cash_excess or None,
+        }
 
     def adding(self, day):
         """Si sta aggiungendo una giornata (scelta nel modulo) invece di correggerne una già chiusa."""
@@ -556,9 +561,16 @@ class DayEntryMixin:
             )
         else:
             text = f"Giornata del {label} salvata: scontrini {euro(close.receipts_total)} €"
-            if close.yakuza_cash:
+            scope = request.scope
+            if close.yakuza_cash and (scope.is_owner or scope.is_franchise):  # i manager non vedono lo Yakuza
                 text += f" e Yakuza {euro(close.yakuza_cash)} €"
             messages.success(request, text + ".")
+        if close.cash_shortage:
+            messages.warning(
+                request,
+                f"In cassa mancano {euro(close.cash_shortage)} €: l'eccesso cassa è più basso dei contanti dello scontrino. "
+                "Se è un errore di battitura, apri la giornata e correggila.",
+            )
         return HttpResponseRedirect(self.page_url(self.list_url_name))
 
 

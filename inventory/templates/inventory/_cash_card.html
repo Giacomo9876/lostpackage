@@ -1,0 +1,4 @@
+{# Contanti e carta dello scontrino di una giornata (`day`), quando sono stati scritti. #}
+{% if day.cash_total is not None or day.card_total is not None %}
+  <br>{% if day.cash_total is not None %}<span class="nowrap">contanti {{ day.cash_total|floatformat:"2g" }} €</span>{% endif %}{% if day.cash_total is not None and day.card_total is not None %} · {% endif %}{% if day.card_total is not None %}<span class="nowrap">carta {{ day.card_total|floatformat:"2g" }} €</span>{% endif %}
+{% endif %}

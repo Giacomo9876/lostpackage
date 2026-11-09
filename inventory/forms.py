@@ -209,7 +209,9 @@ EARLIEST_CLOSE_DAY = date(2020, 1, 1)
 
 
 class CloseDayForm(forms.Form):
-    """La chiusura di una giornata: scontrini battuti (scritti o letti dalla foto) e Yakuza.
+    """La chiusura di una giornata: scontrini battuti (scritti o letti dalla foto), come si dividono tra
+    contanti e carta, e l'eccesso cassa. Lo Yakuza non si scrive: lo calcola il modello (eccesso cassa meno
+    contanti dello scontrino), per questo con un eccesso cassa servono anche i contanti.
 
     L'importo degli scontrini si può scrivere, oppure lasciare vuoto con la foto dello scontrino: allora
     lo si legge dalla foto (se la lettura è disponibile). Quello che resta salvato è sempre l'importo
@@ -235,7 +237,27 @@ class CloseDayForm(forms.Form):
         localize=True,
         widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
     )
-    yakuza_cash = forms.DecimalField(
+    cash_total = forms.DecimalField(
+        label="Contanti dello scontrino (€)",
+        required=False,
+        min_value=Decimal("0"),
+        max_value=MAX_CLOSE_AMOUNT,
+        max_digits=10,
+        decimal_places=2,
+        localize=True,
+        widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
+    )
+    card_total = forms.DecimalField(
+        label="Carta dello scontrino (€)",
+        required=False,
+        min_value=Decimal("0"),
+        max_value=MAX_CLOSE_AMOUNT,
+        max_digits=10,
+        decimal_places=2,
+        localize=True,
+        widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
+    )
+    cash_excess = forms.DecimalField(
         label="Eccesso cassa: non considerando i 250 di base",
         required=False,
         min_value=Decimal("0"),
@@ -297,7 +319,10 @@ class CloseDayForm(forms.Form):
             else:
                 message = "Scrivi il totale degli scontrini."
             self.add_error("receipts_total", message)
-        cleaned["yakuza_cash"] = cleaned.get("yakuza_cash") or Decimal("0.00")
+        cleaned["cash_excess"] = cleaned.get("cash_excess") or Decimal("0.00")
+        if cleaned["cash_excess"] and cleaned.get("cash_total") is None:
+            # Senza i contanti dello scontrino lo Yakuza sarebbe tutto l'eccesso: quei contanti conterebbero due volte.
+            self.add_error("cash_total", "Scrivi i contanti dello scontrino (anche 0): si tolgono dall'eccesso cassa.")
         return cleaned
 
     def save(self, store, day):
@@ -315,7 +340,9 @@ class CloseDayForm(forms.Form):
             close = model.objects.filter(**lookup).first() or model(**lookup)
             old = [(close.photo.storage, close.photo.name)] if close.photo else []
             close.receipts_total = data["receipts_total"]
-            close.yakuza_cash = data["yakuza_cash"]
+            close.cash_total = data.get("cash_total")
+            close.card_total = data.get("card_total")
+            close.cash_excess = data["cash_excess"]  # lo Yakuza lo ricalcola il modello al salvataggio
             for name, value in self.extra_values().items():
                 setattr(close, name, value)
             close.closed_by = self.user
@@ -345,29 +372,9 @@ class CloseDayForm(forms.Form):
 
 
 class FranchiseDayForm(CloseDayForm):
-    """La giornata di un punto in franchising: come la chiusura di un centro, più contanti e carta,
-    le spese (importo e descrizione) e le note."""
+    """La giornata di un punto in franchising: come la chiusura di un centro, più le spese (importo e
+    descrizione) e le note."""
 
-    cash_total = forms.DecimalField(
-        label="Contanti (€)",
-        required=False,
-        min_value=Decimal("0"),
-        max_value=MAX_CLOSE_AMOUNT,
-        max_digits=10,
-        decimal_places=2,
-        localize=True,
-        widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
-    )
-    card_total = forms.DecimalField(
-        label="Carta (€)",
-        required=False,
-        min_value=Decimal("0"),
-        max_value=MAX_CLOSE_AMOUNT,
-        max_digits=10,
-        decimal_places=2,
-        localize=True,
-        widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
-    )
     expenses = forms.DecimalField(
         label="Spese della giornata (€, facoltative)",
         required=False,
@@ -399,8 +406,6 @@ class FranchiseDayForm(CloseDayForm):
     def extra_values(self):
         data = self.cleaned_data
         return {
-            "cash_total": data.get("cash_total"),
-            "card_total": data.get("card_total"),
             "expenses": data.get("expenses") or Decimal("0.00"),
             "expenses_note": data.get("expenses_note", "").strip(),
             "notes": data.get("notes", "").strip(),

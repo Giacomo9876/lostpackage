@@ -70,9 +70,7 @@
           <span class="day-money">{{ day.day_total|floatformat:"2g" }} €</span>
           <span class="day-meta">
             <span class="nowrap">scontrini {{ day.receipts_total|floatformat:"2g" }} €</span>{% if day.yakuza_cash %} + <span class="nowrap">Yakuza {{ day.yakuza_cash|floatformat:"2g" }} €</span>{% endif %}
-            {% if day.cash_total is not None or day.card_total is not None %}
-              <br>{% if day.cash_total is not None %}<span class="nowrap">contanti {{ day.cash_total|floatformat:"2g" }} €</span>{% endif %}{% if day.cash_total is not None and day.card_total is not None %} · {% endif %}{% if day.card_total is not None %}<span class="nowrap">carta {{ day.card_total|floatformat:"2g" }} €</span>{% endif %}
-            {% endif %}
+            {% include "inventory/_cash_card.html" %}
             {% if day.expenses %}<br><span class="nowrap">spese {{ day.expenses|floatformat:"2g" }} €</span>{% if day.expenses_note %} · {{ day.expenses_note }}{% endif %}{% endif %}
             {% if day.notes %}<br><span class="day-note">{{ day.notes|truncatechars:140 }}</span>{% endif %}
           </span>
@@ -80,6 +78,7 @@
             {% if day.reading == "read" %}<span class="tag tag-exact">Letto dalla foto</span>
             {% elif day.reading == "corrected" %}<span class="tag tag-sold">Corretto a mano · letto {{ day.detected_total|floatformat:"2g" }} €</span>
             {% else %}<span class="tag">Scritto a mano</span>{% endif %}
+            {% if day.cash_shortage %}<span class="tag tag-warn">Ammanco cassa {{ day.cash_shortage|floatformat:"2g" }} €</span>{% endif %}
             {% if day.payments_mismatch %}<span class="tag tag-warn">Contanti + carta ≠ scontrini</span>{% endif %}
             {% if day.has_photo %}<a class="tag-link" href="{% url 'inventory:franchise_photo' day.pk %}?v={{ day.updated_at|date:'U' }}" target="_blank" rel="noopener">Foto</a>{% endif %}
             <a class="tag-link" href="{{ day.edit_url }}">Modifica</a>

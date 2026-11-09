@@ -196,7 +196,7 @@ class OwnerTests(SuppliesCase):
         self.status(self.sticker30, YELLOW, place=store("Globo"))
         self.status(self.pallet, RED, place=self.napoli, quantity=0)
 
-    def test_owners_see_every_center_and_point_read_only(self):
+    def test_owners_see_every_center_and_point_with_an_edit_button(self):
         self.fill()
         response = self.client.get(URL)
         self.assertTrue(response.context["overview"])
@@ -204,15 +204,56 @@ class OwnerTests(SuppliesCase):
         self.assertEqual(titles, ["Centri commerciali", "Franchising"])
         places = [card["place"].name for group in response.context["groups"] for card in group["cards"]]
         self.assertEqual(places, ["Globo", "Milanofiori", "Tor Vergata", "Punto Napoli"])
-        for text in ("finito ieri", "6 pallet", "0 pallet", "In esaurimento", "non indicato", "solo lettura"):
+        for text in ("finito ieri", "6 pallet", "0 pallet", "In esaurimento", "non indicato"):
             self.assertContains(response, text)
         self.assertNotContains(response, 'name="level_')
+        self.assertContains(response, f'href="{URL}?centro={store("Globo").pk}"')
+        self.assertContains(response, f'href="{URL}?punto={self.napoli.pk}"')
         self.assertEqual(response.context["totals"], {"red": 2, "yellow": 1})
 
-    def test_owners_cannot_change_anything(self):
+    def test_without_choosing_a_place_owners_cannot_post(self):
         response = self.client.post(URL, {f"level_{self.pallet.pk}": "red"})
         self.assertEqual(response.status_code, 403)
+        for bad in ("abc", "999999", ""):
+            self.assertEqual(self.client.post(f"{URL}?centro={bad}", {f"level_{self.pallet.pk}": "red"}).status_code, 403)
         self.assertFalse(SupplyStatus.objects.exists())
+
+    def test_owners_edit_the_resources_of_a_center(self):
+        self.fill()
+        globo = store("Globo")
+        url = f"{URL}?centro={globo.pk}"
+        page = self.client.get(url)
+        self.assertFalse(page.context["overview"])
+        self.assertTrue(page.context["as_owner"])
+        self.assertEqual(page.context["place"], globo)
+        self.assertEqual(page.context["form"][f"level_{self.sticker30.pk}"].value(), "yellow")  # quello di Globo
+        self.assertIsNone(page.context["form"][f"level_{self.scotch.pk}"].value())  # lo scotch rosso è di Milanofiori
+        self.assertContains(page, "Stai modificando come titolare")
+        response = self.client.post(url, {f"level_{self.sticker30.pk}": "green", f"level_{self.pallet.pk}": "red", f"quantity_{self.pallet.pk}": "0"}, follow=True)
+        self.assertIn("Risorse di Globo aggiornate (2).", self.messages(response))
+        self.assertEqual(response.request["PATH_INFO"], URL)
+        sticker = SupplyStatus.objects.get(store=globo, item=self.sticker30)
+        self.assertEqual((sticker.level, sticker.updated_by), (GREEN, self.tom))
+        self.assertEqual(SupplyStatus.objects.get(store=globo, item=self.pallet).quantity, 0)
+        # gli altri posti non cambiano
+        self.assertEqual(SupplyStatus.objects.get(store=store("Milanofiori"), item=self.scotch).level, RED)
+        self.assertEqual(SupplyStatus.objects.get(franchise=self.napoli, item=self.pallet).level, RED)
+
+    def test_owners_edit_the_resources_of_a_franchise_point(self):
+        url = f"{URL}?punto={self.napoli.pk}"
+        self.assertEqual(self.client.get(url).context["place"], self.napoli)
+        self.client.post(url, {f"level_{self.scotch.pk}": "yellow", f"note_{self.scotch.pk}": "ordinato"})
+        status = SupplyStatus.objects.get()
+        self.assertEqual((status.franchise, status.store, status.level, status.note, status.updated_by), (self.napoli, None, YELLOW, "ordinato", self.tom))
+
+    def test_a_manager_cannot_use_the_owner_choice(self):
+        self.client.force_login(self.mario)
+        globo = store("Globo")
+        page = self.client.get(f"{URL}?centro={globo.pk}")
+        self.assertEqual(page.context["place"], store("Milanofiori"))
+        self.assertFalse(page.context["as_owner"])
+        self.client.post(f"{URL}?centro={globo.pk}&punto={self.napoli.pk}", {f"level_{self.scotch.pk}": "red"})
+        self.assertEqual(list(SupplyStatus.objects.values_list("store__name", "franchise")), [("Milanofiori", None)])
 
     def test_filters_by_kind_and_problems(self):
         self.fill()

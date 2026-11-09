@@ -139,8 +139,6 @@ class FranchiseDayView(DayEntryMixin, DayMixin, FranchiseChoiceMixin, TemplateVi
     def initial_for(self, close):
         return {
             **super().initial_for(close),
-            "cash_total": close.cash_total,
-            "card_total": close.card_total,
             "expenses": close.expenses or None,
             "expenses_note": close.expenses_note,
             "notes": close.notes,

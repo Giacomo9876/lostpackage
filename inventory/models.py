@@ -11,6 +11,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 CENT = Decimal("0.01")
+ZERO = Decimal("0.00")
 
 
 def photo_upload_path(instance, filename):
@@ -339,6 +340,11 @@ class ReceiptDay(models.Model):
     (`detected_total`): in ogni caso `receipts_total` è quello confermato da chi chiude, e può
     correggere ciò che è stato letto. Le medie (infrasettimanale, settimanale, fine settimana) si
     calcolano da queste giornate.
+
+    Lo Yakuza non si scrive: è l'eccesso cassa (i contanti in cassa oltre i 250 € di base) meno i
+    contanti già battuti sullo scontrino, che altrimenti si conterebbero due volte (una negli scontrini,
+    una nell'eccesso). Si ricalcola a ogni salvataggio (`save`), da qualunque parte arrivi; se in cassa
+    ci sono meno contanti di quelli dello scontrino lo Yakuza è 0 e la differenza è un ammanco.
     """
 
     date = models.DateField("Giornata")
@@ -348,11 +354,26 @@ class ReceiptDay(models.Model):
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0"))],
     )
+    cash_total = models.DecimalField(
+        "Contanti dello scontrino (€)", max_digits=10, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(Decimal("0"))]
+    )
+    card_total = models.DecimalField(
+        "Carta dello scontrino (€)", max_digits=10, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(Decimal("0"))]
+    )
+    cash_excess = models.DecimalField(
+        "Eccesso cassa (€)",
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0"))],
+        help_text="I contanti in cassa oltre i 250 € di base.",
+    )
     yakuza_cash = models.DecimalField(
         "Yakuza (€)",
         max_digits=10,
         decimal_places=2,
         default=Decimal("0.00"),
+        editable=False,  # calcolato in save(): eccesso cassa meno contanti dello scontrino
         validators=[MinValueValidator(Decimal("0"))],
     )
     photo = models.ImageField("Foto dello scontrino", upload_to=receipt_upload_path, max_length=255, blank=True)
@@ -371,10 +392,35 @@ class ReceiptDay(models.Model):
     def has_photo(self):
         return bool(self.photo)
 
+    @staticmethod
+    def yakuza_for(cash_excess, cash_total):
+        """Yakuza = eccesso cassa − contanti dello scontrino (senza contanti scritti: tutto l'eccesso); mai sotto 0."""
+        return max(cash_excess - (cash_total or ZERO), ZERO)
+
+    def save(self, *args, **kwargs):
+        self.yakuza_cash = self.yakuza_for(self.cash_excess, self.cash_total)
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = {*kwargs["update_fields"], "yakuza_cash"}
+        super().save(*args, **kwargs)
+
     @property
     def day_total(self):
         """Incasso della giornata: scontrini più Yakuza."""
         return self.receipts_total + self.yakuza_cash
+
+    @property
+    def cash_shortage(self):
+        """Quanto manca in cassa: contanti dello scontrino oltre l'eccesso cassa (0 se i conti tornano)."""
+        if self.cash_total is None:
+            return ZERO
+        return max(self.cash_total - self.cash_excess, ZERO)
+
+    @property
+    def payments_mismatch(self):
+        """Contanti e carta scritti entrambi ma la loro somma non torna con gli scontrini."""
+        if self.cash_total is None or self.card_total is None:
+            return False
+        return self.cash_total + self.card_total != self.receipts_total
 
     @property
     def reading(self):
@@ -385,7 +431,7 @@ class ReceiptDay(models.Model):
 
 
 class DayClose(ReceiptDay):
-    """Chiusura di una giornata in un centro: gli scontrini battuti in cassa e lo Yakuza."""
+    """Chiusura di una giornata in un centro: gli scontrini battuti in cassa (contanti e carta) e lo Yakuza."""
 
     store = models.ForeignKey(Store, verbose_name="Centro", on_delete=models.PROTECT, related_name="closes")
 
@@ -400,16 +446,10 @@ class DayClose(ReceiptDay):
 
 
 class FranchiseDay(ReceiptDay):
-    """Una giornata di un punto in franchising: scontrini e Yakuza come i centri, più contanti e carta,
+    """Una giornata di un punto in franchising: scontrini, contanti, carta e Yakuza come i centri, più
     le spese e le note della giornata."""
 
     franchise = models.ForeignKey(Franchise, verbose_name="Punto", on_delete=models.PROTECT, related_name="days")
-    cash_total = models.DecimalField(
-        "Contanti (€)", max_digits=10, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(Decimal("0"))]
-    )
-    card_total = models.DecimalField(
-        "Carta (€)", max_digits=10, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(Decimal("0"))]
-    )
     expenses = models.DecimalField(
         "Spese (€)", max_digits=10, decimal_places=2, default=Decimal("0.00"), validators=[MinValueValidator(Decimal("0"))]
     )
@@ -429,13 +469,6 @@ class FranchiseDay(ReceiptDay):
     def net_total(self):
         """Incasso della giornata (scontrini più Yakuza) meno le spese."""
         return self.day_total - self.expenses
-
-    @property
-    def payments_mismatch(self):
-        """Contanti e carta scritti entrambi ma la loro somma non torna con gli scontrini."""
-        if self.cash_total is None or self.card_total is None:
-            return False
-        return self.cash_total + self.card_total != self.receipts_total
 
 
 class SupplyItem(models.Model):

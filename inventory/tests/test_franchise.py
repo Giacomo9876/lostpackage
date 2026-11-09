@@ -30,8 +30,10 @@ def make_franchisee(username, franchise):
 
 
 def make_day(franchise, day, receipts="100", yakuza="0", **extra):
+    """Una giornata con quello Yakuza: l'eccesso cassa è lo Yakuza più i contanti dello scontrino (se ci sono)."""
+    excess = D(str(yakuza)) + (extra.get("cash_total") or 0)
     return FranchiseDay.objects.create(
-        franchise=franchise, date=day, receipts_total=D(str(receipts)), yakuza_cash=D(str(yakuza)), **extra
+        franchise=franchise, date=day, receipts_total=D(str(receipts)), cash_excess=excess, **extra
     )
 
 
@@ -282,7 +284,7 @@ class DayFormTests(FranchiseCase):
             {
                 "day": old.isoformat(),
                 "receipts_total": "2632,26",
-                "yakuza_cash": "120",
+                "cash_excess": "558,66",  # contanti in cassa oltre i 250: 438,66 battuti + 120 senza scontrino
                 "cash_total": "438,66",
                 "card_total": "2193,60",
                 "expenses": "42",
@@ -310,7 +312,7 @@ class DayFormTests(FranchiseCase):
     def test_the_form_has_the_franchise_fields_and_the_date(self):
         response = self.client.get(DAY)
         self.assertTemplateUsed(response, "inventory/close_day.html")
-        for name in ("day", "receipts_total", "yakuza_cash", "cash_total", "card_total", "expenses", "expenses_note", "notes", "photo"):
+        for name in ("day", "receipts_total", "cash_excess", "cash_total", "card_total", "expenses", "expenses_note", "notes", "photo"):
             self.assertContains(response, f'name="{name}"')
         self.assertContains(response, "Giornata del franchising")
         self.assertContains(response, "Eccesso cassa: non considerando i 250 di base")
@@ -320,7 +322,8 @@ class DayFormTests(FranchiseCase):
         day = make_day(self.napoli, self.today - timedelta(days=3), "500", "20", cash_total=D("200"), card_total=D("300"), expenses=D("15"), notes="ok")
         url = f"{DAY}?data={day.date.isoformat()}"
         response = self.client.get(url)
-        for value in ('value="500,00"', 'value="20,00"', 'value="200,00"', 'value="300,00"', 'value="15,00"'):
+        # eccesso cassa 220 = Yakuza 20 + contanti dello scontrino 200
+        for value in ('value="500,00"', 'value="220,00"', 'value="200,00"', 'value="300,00"', 'value="15,00"'):
             self.assertContains(response, value)
         self.assertContains(response, "ok</textarea>")
         self.client.post(url, {"receipts_total": "450", "day": self.today.isoformat()})

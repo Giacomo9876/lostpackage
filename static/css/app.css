@@ -375,7 +375,8 @@ h2 { margin: 24px 0 10px; font-size: 1.1rem; font-weight: 800; letter-spacing: -
 .h1-sub { margin-left: 6px; color: var(--slate); font-size: 1rem; font-weight: 600; letter-spacing: 0; }
 .hint-inline { color: var(--slate); font-size: 0.9rem; }
 .tag-warn { background: var(--danger-bg); border-color: var(--danger-bg); color: var(--danger-fg); }
-.notice-warn { border-left-color: var(--alert); }
+.notice-warn,
+.notice-warning { border-left-color: var(--alert); }
 .is-warn { color: var(--alert); font-weight: 700; }
 
 .card { margin: 0 0 16px; padding: 16px; background: var(--paper); border-radius: 16px; }
@@ -647,3 +648,6 @@ h2 { margin: 24px 0 10px; font-size: 1.1rem; font-weight: 800; letter-spacing: -
 @media (forced-colors: active) {
   .light-dot, .dot { forced-color-adjust: none; }
 }
+.supply-place-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.supply-place-head .store-head { flex: 1; min-width: 0; }
+.btn-small { min-height: 44px; padding: 8px 14px; font-size: 0.9rem; }

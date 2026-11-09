@@ -81,20 +81,22 @@ class BatchAdmin(admin.ModelAdmin):
 class DayCloseAdmin(admin.ModelAdmin):
     """Le foto degli scontrini si caricano solo dall'app: devono passare dall'elaborazione in images.py."""
 
-    list_display = ("date", "store", "receipts_total", "yakuza_cash", "closed_by", "updated_at")
+    list_display = ("date", "store", "receipts_total", "cash_total", "card_total", "cash_excess", "yakuza_cash", "closed_by", "updated_at")
     list_filter = ("store",)
     date_hierarchy = "date"
     exclude = ("photo", "detected_total")
+    readonly_fields = ("yakuza_cash",)  # calcolato: eccesso cassa meno contanti dello scontrino
 
 
 @admin.register(FranchiseDay)
 class FranchiseDayAdmin(admin.ModelAdmin):
     """Le giornate dei punti in franchising (la foto si carica solo dall'app, come per le chiusure)."""
 
-    list_display = ("date", "franchise", "receipts_total", "yakuza_cash", "cash_total", "card_total", "expenses", "closed_by")
+    list_display = ("date", "franchise", "receipts_total", "cash_total", "card_total", "cash_excess", "yakuza_cash", "expenses", "closed_by")
     list_filter = ("franchise",)
     date_hierarchy = "date"
     exclude = ("photo", "detected_total")
+    readonly_fields = ("yakuza_cash",)  # calcolato: eccesso cassa meno contanti dello scontrino
 
 
 @admin.register(SupplyItem)
