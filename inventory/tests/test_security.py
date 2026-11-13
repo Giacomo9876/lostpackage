@@ -1,5 +1,6 @@
 """Protezioni generali: richieste troppo grandi, Content-Security-Policy, header di sicurezza, registro."""
 import logging
+from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
@@ -78,6 +79,20 @@ class HeadersTests(TestCase):
                 for tag in html.split("<script")[1:]:
                     self.assertIn("src=", tag.split(">")[0])
                 self.assertNotRegex(html, r"\son(click|load|submit|change|input)=")
+
+
+class TemplateCommentTests(SimpleTestCase):
+    def test_template_comments_stay_on_one_line(self):
+        """{# … #} vale solo su una riga: spezzato, Django lo stampa nella pagina (per più righe c'è {% comment %})."""
+        root = Path(settings.BASE_DIR)
+        broken = [
+            f"{path.relative_to(root)}:{number}"
+            for path in sorted(root.glob("**/templates/**/*.html"))
+            if "venv" not in path.parts
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+            if line.count("{#") != line.count("#}")
+        ]
+        self.assertEqual(broken, [])
 
 
 class LoggingTests(SimpleTestCase):
