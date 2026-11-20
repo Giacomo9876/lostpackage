@@ -1,7 +1,6 @@
 """Le tre medie degli incassi, calcolate dalle chiusure di giornata.
 
-Ogni chiusura ha gli scontrini battuti e (solo per i titolari, che li vedono) lo Yakuza; la
-giornata vale la somma. Si calcolano tre medie:
+Ogni chiusura ha gli scontrini battuti e lo Yakuza; la giornata vale la somma. Si calcolano tre medie:
 
 - **infrasettimanale**: media al giorno da lunedì a venerdì;
 - **settimana**: media al giorno su tutti i giorni, e incasso medio di una settimana intera;
@@ -34,6 +33,7 @@ PERIODS = [
 ]
 DEFAULT_PERIOD = "90g"
 LIST_LIMIT = 60  # giornate mostrate nell'elenco
+DAY_LIMIT = 31  # giorni mostrati nell'incasso giornaliero di tutti i centri
 
 
 def get_period(key, today=None):
@@ -166,3 +166,49 @@ def compute_by_store(rows, period, today):
     for row in rows:
         grouped[row[0]].append(row)
     return {store_id: compute(items, period, today) for store_id, items in grouped.items()}
+
+
+@dataclass
+class DayGroup:
+    """Un giorno con l'incasso di tutti i centri: la somma delle chiusure di quel giorno."""
+
+    date: object
+    closes: list  # le chiusure del giorno, una per centro
+    missing: list  # i centri che quel giorno non hanno una chiusura
+    stores_count: int  # i centri in tutto
+
+    @property
+    def receipts(self):
+        return sum((close.receipts_total for close in self.closes), ZERO)
+
+    @property
+    def yakuza(self):
+        return sum((close.yakuza_cash for close in self.closes), ZERO)
+
+    @property
+    def total(self):
+        return self.receipts + self.yakuza
+
+
+def day_groups(closes, stores, period, limit=DAY_LIMIT):
+    """L'incasso di ogni giorno di tutti i centri insieme, dal più recente: al massimo `limit` giorni con
+    almeno una chiusura. Restituisce (giorni, altri) dove `altri` dice se ce ne sono di più vecchi.
+
+    `closes` è già limitato dal perimetro (lo usa solo il titolare). Si leggono le chiusure di quei giorni,
+    tutte: un giorno non resta mai a metà come succederebbe tagliando l'elenco per numero di chiusure.
+    """
+    in_period = stats.closes_in(closes, period)
+    dates = list(in_period.order_by("-date").values_list("date", flat=True).distinct()[: limit + 1])
+    more = len(dates) > limit
+    dates = dates[:limit]
+    by_date = defaultdict(list)
+    for close in in_period.filter(date__in=dates).select_related("store").order_by("-date", "store__name"):
+        by_date[close.date].append(close)
+    stores = list(stores)
+    groups = []
+    for day in dates:
+        day_closes = by_date[day]
+        closed = {close.store_id for close in day_closes}
+        missing = [store for store in stores if store.pk not in closed]
+        groups.append(DayGroup(date=day, closes=day_closes, missing=missing, stores_count=len(stores)))
+    return groups, more

@@ -49,27 +49,44 @@
   </ul>
 {% endif %}
 
+{% if day_groups is not None %}
+  <h2>Incasso giornaliero · tutti i centri {% if day_groups %}<span class="count-pill">{{ day_groups|length }}{% if more_days %}+{% endif %}</span>{% endif %}</h2>
+  {% if day_groups %}
+    <ul class="day-groups">
+      {% for group in day_groups %}
+        <li class="day-group">
+          <div class="day day-sum">
+            <span class="day-date">{{ group.date|date:"D j F"|lower }}</span>
+            <span class="day-money">{{ group.total|floatformat:"2g" }} €</span>
+            <span class="day-meta">
+              {% if group.yakuza %}scontrini {{ group.receipts|floatformat:"2g" }} € + Yakuza {{ group.yakuza|floatformat:"2g" }} €{% else %}scontrini{% endif %}
+              · <span class="nowrap">{{ group.closes|length }} centr{{ group.closes|length|pluralize:"o,i" }} su {{ group.stores_count }}</span>
+            </span>
+            {% if group.missing %}
+              <span class="day-tags"><span class="tag tag-warn">Manca{{ group.missing|length|pluralize:",no" }}: {% for item in group.missing %}{{ item.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</span></span>
+            {% endif %}
+          </div>
+          <ul class="days day-stores">
+            {% for close in group.closes %}
+              {% include "inventory/_close_row.html" with label=close.store.name %}
+            {% endfor %}
+          </ul>
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="fine-print">
+      Il totale di ogni giorno è la somma delle chiusure dei centri (scontrini più Yakuza).
+      {% if more_days %}Sono mostrati gli ultimi {{ day_limit }} giorni con almeno una chiusura; le medie qui sopra contano tutto il periodo.{% endif %}
+    </p>
+  {% else %}
+    <p class="hint">Nessuna giornata chiusa nel periodo scelto.</p>
+  {% endif %}
+{% else %}
 <h2>Giornate {% if closes %}<span class="count-pill">{{ closes|length }}{% if more %}+{% endif %}</span>{% endif %}</h2>
 {% if closes %}
   <ul class="days">
     {% for close in closes %}
-      <li class="day">
-        <span class="day-date">{{ close.date|date:"D j F"|lower }}{% if not store %} · {{ close.store.name }}{% endif %}</span>
-        <span class="day-money">{{ close.day_total|floatformat:"2g" }} €</span>
-        <span class="day-meta">
-          {% if close.yakuza_cash %}scontrini {{ close.receipts_total|floatformat:"2g" }} € + Yakuza {{ close.yakuza_cash|floatformat:"2g" }} €{% else %}scontrini{% endif %}
-          {% include "inventory/_cash_card.html" with day=close %}
-        </span>
-        <span class="day-tags">
-          {% if close.cash_shortage %}<span class="tag tag-warn">Ammanco cassa {{ close.cash_shortage|floatformat:"2g" }} €</span>{% endif %}
-          {% if close.payments_mismatch %}<span class="tag tag-warn">Contanti + carta ≠ scontrini</span>{% endif %}
-          {% if close.reading == "read" %}<span class="tag tag-exact">Letto dalla foto</span>
-          {% elif close.reading == "corrected" %}<span class="tag tag-sold">Corretto a mano · letto {{ close.detected_total|floatformat:"2g" }} €</span>
-          {% else %}<span class="tag">Scritto a mano</span>{% endif %}
-          {% if close.has_photo %}<a class="tag-link" href="{% url 'inventory:receipt_photo' close.pk %}?v={{ close.updated_at|date:'U' }}" target="_blank" rel="noopener">Foto</a>{% endif %}
-          {% if close.edit_url %}<a class="tag-link" href="{{ close.edit_url }}">Modifica</a>{% endif %}
-        </span>
-      </li>
+      {% include "inventory/_close_row.html" with label=close.date|date:"D j F"|lower %}
     {% endfor %}
   </ul>
   {% if more %}
@@ -77,5 +94,6 @@
   {% endif %}
 {% else %}
   <p class="hint">Nessuna giornata chiusa nel periodo scelto.</p>
+{% endif %}
 {% endif %}
 {% endblock %}

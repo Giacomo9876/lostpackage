@@ -315,7 +315,8 @@ class DayFormTests(FranchiseCase):
         for name in ("day", "receipts_total", "cash_excess", "cash_total", "card_total", "expenses", "expenses_note", "notes", "photo"):
             self.assertContains(response, f'name="{name}"')
         self.assertContains(response, "Giornata del franchising")
-        self.assertContains(response, "Eccesso cassa: non considerando i 250 di base")
+        self.assertContains(response, "Totale contanti presenti in cassa (escluso fondo cassa)")
+        self.assertNotContains(response, "Eccesso cassa")
         self.assertNotContains(response, "cambia punto")  # chi è in franchising ha un solo punto
 
     def test_an_existing_day_fills_the_form_and_keeps_its_date(self):

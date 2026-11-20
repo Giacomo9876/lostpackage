@@ -356,8 +356,8 @@ def closing_entry_delete(request, pk):
 class ReceiptsView(TemplateView):
     """Le chiusure di giornata e le tre medie: infrasettimanale, settimanale, fine settimana.
 
-    Il titolare vede tutti i centri (a confronto) o ne sceglie uno con ?centro=; lo store manager
-    il proprio. Ai manager lo Yakuza non arriva nemmeno ai calcoli: ogni cifra è solo scontrini.
+    Il titolare vede tutti i centri (a confronto, con l'incasso di ogni giorno sommato tra i centri) o ne
+    sceglie uno con ?centro=; lo store manager il proprio, Yakuza compreso.
     """
 
     template_name = "inventory/receipts.html"
@@ -379,9 +379,17 @@ class ReceiptsView(TemplateView):
             computed = averages.compute_by_store(rows, period, today)
             by_store = [(item, computed.get(item.pk) or averages.Averages()) for item in scope.stores()]
 
-        listed = list(
-            stats.closes_in(closes, period).select_related("store").order_by("-date", "store__name")[: averages.LIST_LIMIT + 1]
-        )
+        day_groups, more_days = None, False
+        if store is None and scope.is_owner:
+            # Tutti i centri: le chiusure raggruppate per giorno, con il totale di ogni giorno.
+            day_groups, more_days = averages.day_groups(closes, scope.stores(), period, averages.DAY_LIMIT)
+            for group in day_groups:
+                self.with_links(group.closes, scope)
+            listed = []
+        else:
+            listed = list(
+                stats.closes_in(closes, period).select_related("store").order_by("-date", "store__name")[: averages.LIST_LIMIT + 1]
+            )
         context.update(
             today=today,
             period=period,
@@ -394,6 +402,9 @@ class ReceiptsView(TemplateView):
             closes=self.with_links(listed[: averages.LIST_LIMIT], scope),
             more=len(listed) > averages.LIST_LIMIT,
             list_limit=averages.LIST_LIMIT,
+            day_groups=day_groups,
+            more_days=more_days,
+            day_limit=averages.DAY_LIMIT,
             show_private=scope.is_owner,
             add_url=self.add_url(scope, store),
         )
@@ -561,7 +572,7 @@ class DayEntryMixin:
         if close.cash_shortage:
             messages.warning(
                 request,
-                f"In cassa mancano {euro(close.cash_shortage)} €: l'eccesso cassa è più basso dei contanti dello scontrino. "
+                f"In cassa mancano {euro(close.cash_shortage)} €: i contanti presenti in cassa sono meno di quelli dello scontrino. "
                 "Se è un errore di battitura, apri la giornata e correggila.",
             )
         return HttpResponseRedirect(self.page_url(self.list_url_name))

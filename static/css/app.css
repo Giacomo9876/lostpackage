@@ -467,6 +467,13 @@ h2 { margin: 24px 0 10px; font-size: 1.1rem; font-weight: 800; letter-spacing: -
 .day-money { font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
 .day-meta { grid-column: 1 / -1; color: var(--slate); font-size: 0.9rem; }
 
+/* Incasso giornaliero di tutti i centri: il totale del giorno e, sotto, le chiusure dei centri */
+.day-groups { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; }
+.day-sum { border-left: 5px solid var(--tape); }
+.day-sum .day-money { font-size: 1.2rem; }
+.day-stores { margin: 6px 0 0 14px; gap: 6px; }
+.day-stores .day { padding: 10px 12px; background: transparent; border: 1px solid var(--line); }
+
 /* Chiusura di giornata */
 
 .checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }

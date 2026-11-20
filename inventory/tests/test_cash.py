@@ -93,7 +93,7 @@ class CloseFormTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.context["form"].errors["cash_total"],
-            ["Scrivi i contanti dello scontrino (anche 0): si tolgono dall'eccesso cassa."],
+            ["Scrivi i contanti dello scontrino (anche 0): si tolgono dai contanti presenti in cassa."],
         )
         self.assertFalse(DayClose.objects.exists())
 

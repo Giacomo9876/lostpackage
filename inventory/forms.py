@@ -258,7 +258,7 @@ class CloseDayForm(forms.Form):
         widget=forms.TextInput(attrs=MONEY_WIDGET_ATTRS),
     )
     cash_excess = forms.DecimalField(
-        label="Eccesso cassa: non considerando i 250 di base",
+        label="Totale contanti presenti in cassa (escluso fondo cassa)",
         required=False,
         min_value=Decimal("0"),
         max_value=MAX_CLOSE_AMOUNT,
@@ -322,7 +322,7 @@ class CloseDayForm(forms.Form):
         cleaned["cash_excess"] = cleaned.get("cash_excess") or Decimal("0.00")
         if cleaned["cash_excess"] and cleaned.get("cash_total") is None:
             # Senza i contanti dello scontrino lo Yakuza sarebbe tutto l'eccesso: quei contanti conterebbero due volte.
-            self.add_error("cash_total", "Scrivi i contanti dello scontrino (anche 0): si tolgono dall'eccesso cassa.")
+            self.add_error("cash_total", "Scrivi i contanti dello scontrino (anche 0): si tolgono dai contanti presenti in cassa.")
         return cleaned
 
     def save(self, store, day):

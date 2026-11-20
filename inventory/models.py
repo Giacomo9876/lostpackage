@@ -361,12 +361,12 @@ class ReceiptDay(models.Model):
         "Carta dello scontrino (€)", max_digits=10, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(Decimal("0"))]
     )
     cash_excess = models.DecimalField(
-        "Eccesso cassa (€)",
+        "Contanti in cassa, escluso fondo (€)",
         max_digits=10,
         decimal_places=2,
         default=Decimal("0.00"),
         validators=[MinValueValidator(Decimal("0"))],
-        help_text="I contanti in cassa oltre i 250 € di base.",
+        help_text="Il totale dei contanti presenti in cassa, escluso il fondo cassa.",
     )
     yakuza_cash = models.DecimalField(
         "Yakuza (€)",

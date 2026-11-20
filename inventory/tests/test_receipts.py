@@ -105,8 +105,9 @@ class FormPageTests(ReceiptCase):
         self.assertContains(response, 'capture="environment"')
         self.assertContains(response, 'enctype="multipart/form-data"')
         self.assertContains(
-            response, '<label for="id_cash_excess">Eccesso cassa: non considerando i 250 di base</label>', html=False
+            response, '<label for="id_cash_excess">Totale contanti presenti in cassa (escluso fondo cassa)</label>', html=False
         )
+        self.assertNotContains(response, "Eccesso cassa")
         self.assertContains(response, '<label for="id_cash_total">Contanti dello scontrino (€)</label>', html=False)
         self.assertContains(response, '<label for="id_card_total">Carta dello scontrino (€)</label>', html=False)
         self.assertNotContains(response, "Contanti Yakuza")
