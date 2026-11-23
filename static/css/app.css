@@ -154,7 +154,7 @@ a { color: inherit; }
 
 /* Moduli */
 
-.field label:not(.photo-drop) {
+.field label:not(.photo-drop, .photo-gallery) {
   display: block; margin-bottom: 6px;
   color: var(--slate); font-size: 0.9rem; font-weight: 600;
 }
@@ -214,7 +214,10 @@ input[type="file"] {
   position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; border: 0;
   overflow: hidden; clip-path: inset(50%); opacity: 0;
 }
-input[type="file"]:focus-visible + .photo-drop { outline: 3px solid var(--focus); outline-offset: 2px; }
+input[type="file"]:focus-visible + .photo-drop,
+input[type="file"]:focus-visible + .photo-gallery { outline: 3px solid var(--focus); outline-offset: 2px; }
+.photo-gallery { width: 100%; margin-top: 10px; gap: 10px; }
+.photo-gallery svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .photo-drop {
   display: grid; place-items: center;

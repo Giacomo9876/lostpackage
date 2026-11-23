@@ -45,6 +45,12 @@
         {% if close.has_photo %}Cambia foto{% elif ocr_available %}Fotografa lo scontrino di chiusura{% else %}Aggiungi la foto dello scontrino{% endif %}
       </span>
     </label>
+    {# Stesso campo «photo» ma senza «capture»: il telefono apre la galleria invece della fotocamera. #}
+    <input type="file" name="photo" accept="image/*" id="id_photo_gallery" data-photo-input>
+    <label class="btn btn-secondary photo-gallery" for="id_photo_gallery">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="m4 17 5-5 4 4 2.5-2.5L20 17"/></svg>
+      Scegli dalla galleria
+    </label>
     {% for error in form.photo.errors %}<p class="error">{{ error }}</p>{% endfor %}
     <p class="hint">
       {% if ocr_available %}L'importo si legge dalla foto e lo compila da solo: controllalo e, se non è giusto, scrivi quello corretto.

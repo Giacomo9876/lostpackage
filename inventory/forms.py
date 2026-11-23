@@ -270,8 +270,9 @@ class CloseDayForm(forms.Form):
     photo = forms.FileField(
         label="Foto dello scontrino (facoltativa)",
         required=False,
-        # "capture" apre direttamente la fotocamera posteriore sul telefono.
-        widget=forms.FileInput(attrs={"accept": "image/*", "capture": "environment"}),
+        # "capture" apre direttamente la fotocamera posteriore sul telefono. Il modulo ha anche un secondo
+        # campo con lo stesso nome e senza "capture" (Scegli dalla galleria): arriva qui allo stesso modo.
+        widget=forms.FileInput(attrs={"accept": "image/*", "capture": "environment", "data-photo-input": True}),
     )
     remove_photo = forms.BooleanField(label="Togli la foto", required=False)
     reading_token = forms.CharField(required=False, widget=forms.HiddenInput)

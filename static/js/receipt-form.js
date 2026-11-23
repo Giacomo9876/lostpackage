@@ -4,7 +4,8 @@
   var form = document.querySelector("form[data-receipt-form]");
   if (!form) { return; }
 
-  var input = document.getElementById("id_photo");
+  // Due campi foto con lo stesso nome: fotocamera (id_photo) e galleria (id_photo_gallery).
+  var inputs = Array.prototype.slice.call(form.querySelectorAll("input[data-photo-input]"));
   var amount = document.getElementById("id_receipts_total");
   var token = document.getElementById("id_reading_token");
   var status = form.querySelector("[data-reading-status]");
@@ -84,14 +85,16 @@
     });
   }
 
-  if (input) {
+  inputs.forEach(function (input) {
     input.addEventListener("change", function () {
       var file = input.files && input.files[0];
       if (!file) { counter++; say("", ""); if (token) { token.value = ""; } return; }
+      // Conta l'ultima foto scelta: si svuota l'altro campo, così al server ne arriva una sola.
+      inputs.forEach(function (other) { if (other !== input) { other.value = ""; } });
       showPreview(file);
       if (readUrl) { read(file); }
     });
-  }
+  });
 
   // Con una connessione lenta il caricamento della foto richiede qualche secondo: dopo il primo
   // tocco il pulsante si blocca, per non salvare due volte la stessa giornata.
